@@ -2,5 +2,5 @@
 
 > Desarrollo en equipo colaborativo para la relizacion del desafio ed la NASA
 
-![Imagen del evento](recursos/Challenge.jpeg)
+![Imagen del evento](recursos/AURALIS.jpeg)
 
