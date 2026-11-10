@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earth Jukebox</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{ --bg:#0a0a0a; --fg:#ecece6; --mut:#6c6c66; --acc:#eaff3b; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--fg);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column}
+
+  #intro{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;text-align:center;padding:24px;transition:opacity .6s}
+  #intro.out{opacity:0;pointer-events:none}
+  #intro h1{font-weight:300;font-size:clamp(34px,6vw,64px);letter-spacing:-.02em}
+  #intro p{font-size:12px;color:var(--mut);letter-spacing:.16em;text-transform:uppercase}
+  #intro p.soft{letter-spacing:.06em;text-transform:none;max-width:460px;line-height:1.75;font-size:13px}
+  #btn-start{font:500 12px 'JetBrains Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--fg);background:none;border:1px solid #3a3a36;padding:14px 28px;cursor:pointer;transition:all .25s}
+  #btn-start:hover{border-color:var(--acc);color:var(--acc)}
+
+  header{display:flex;justify-content:space-between;align-items:center;padding:22px 28px;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+  header b{color:var(--fg);font-weight:600}
+
+  main{flex:1;display:block;padding:0 28px 12px;max-width:1100px;width:100%;margin:0 auto}
+  @media (max-width:760px){main{padding:0 16px 12px}}
+  .tile{display:none}
+  .tile.active{display:block}
+  #nav{display:flex;justify-content:center;align-items:center;gap:28px;padding:14px 0 110px;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.18em;color:var(--mut)}
+  #nav button{font:inherit;color:var(--fg);background:none;border:1px solid #3a3a36;width:46px;height:34px;cursor:pointer;font-size:15px}
+  #nav button:hover{border-color:var(--acc);color:var(--acc)}
+  #count b{color:var(--fg);font-weight:600}
+  .tile canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;background:#111;cursor:crosshair;touch-action:none;
+    filter:grayscale(.8) brightness(.75);transition:filter .5s}
+  .tile.on canvas{filter:none}
+  .tile.drag canvas{outline:1px dashed var(--acc);outline-offset:-6px}
+  figcaption{display:flex;gap:14px;align-items:baseline;padding-top:10px;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;color:var(--mut);text-transform:uppercase;flex-wrap:wrap}
+  figcaption .n{color:var(--acc)}
+  figcaption .t{color:var(--fg)}
+  figcaption .m{margin-left:auto}
+  figcaption .swap{font:inherit;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);background:none;border:0;border-bottom:1px solid #3a3a36;cursor:pointer;padding:0}
+  figcaption .swap:hover{color:var(--acc);border-color:var(--acc)}
+  figcaption input{display:none}
+
+  #bar{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;gap:26px;align-items:center;padding:16px 28px;background:linear-gradient(to top,var(--bg) 60%,transparent);font:400 11px 'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+  #bar span b{color:var(--fg);font-weight:600;margin-left:6px}
+  #bar .sp{flex:1}
+  #btn-mute{font:inherit;letter-spacing:.14em;color:var(--fg);background:none;border:1px solid #3a3a36;padding:8px 14px;cursor:pointer;text-transform:uppercase}
+  #btn-mute:hover{border-color:var(--acc);color:var(--acc)}
+  @media (max-width:760px){#bar{gap:12px;padding:12px 16px;font-size:10px}#bar .hide-m{display:none}}
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <p>NASA Space Apps Challenge · 2026</p>
+  <h1>Earth Jukebox</h1>
+  <p class="soft">Tu mano toca la música. Cada nota nace del píxel por el que pasas, el color decide la armonía y la velocidad del cursor decide el ritmo.</p>
+  <button id="btn-start">Entrar</button>
+</div>
+
+<header>
+  <div><b>Earth Jukebox</b></div>
+  <div>Sonificación en tiempo real · NASA EIC</div>
+</header>
+
+<main id="grid"></main>
+<nav id="nav"><button id="prev" aria-label="Imagen anterior">←</button><span id="count">01 / 07</span><button id="next" aria-label="Imagen siguiente">→</button></nav>
+
+<div id="bar">
+  <span>Nota<b id="t-note">—</b></span>
+  <span>Acorde<b id="t-chord">—</b></span>
+  <span class="hide-m">Luz<b id="t-lum">—</b></span>
+  <span class="hide-m">Vel<b id="t-vel">—</b></span>
+  <span class="hide-m">BPM<b id="t-bpm">—</b></span>
+  <span class="sp"></span>
+  <span id="choir-state" class="hide-m">coro: —</span>
+  <button id="btn-mute">Sonido on</button>
+</div>
+
+<script>
+/* ============================================================
+   EARTH JUKEBOX — v4
+   El mouse es el instrumento:
+   · pasar por píxeles = notas (altura según luz/posición)
+   · color de la zona = acorde (armonía)
+   · velocidad del cursor = densidad, ritmo, filtros y viento
+   · cada imagen tiene su propio instrumento
+   ============================================================ */
+
+const W = 900, H = 600;
+const YEL = '#eaff3b';
+const WATER = [150, 200, 240];
+
+/* ---------- Imágenes y música ----------
+   `srcs`: se prueban en orden (con CORS). Si ninguna funciona puedes
+   soltar tu propia imagen de la NASA sobre el recuadro o usar "Cargar imagen". */
+const TILES = [
+  {
+    key:'earth', voiceType:'earth', title:'Blue Marble', mood:'Do mayor · 84 bpm', bpm:84,
+    srcs:[
+      'https://upload.wikimedia.org/wikipedia/commons/9/97/The_Earth_seen_from_Apollo_17.jpg',
+      'https://commons.wikimedia.org/wiki/Special:FilePath/The_Blue_Marble.jpg?width=1400',
+      'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg'
+    ],
+    fallback:['#0b2a4a','#2f7d5b'], rev:.35, choirLvl:.6,
+    rootPc:0, scale:[0,2,4,5,7,9,11], modeName:'IONIAN · PIANO ELÉCTRICO',
+    chords:[
+      {n:'Cmaj7', t:['C3','E3','G3','B3']},
+      {n:'Am7',   t:['A2','C3','E3','G3']},
+      {n:'Fmaj7', t:['F2','A2','C3','E3']},
+      {n:'G6',    t:['G2','B2','D3','E3']}
+    ]
+  },
+  {
+    key:'aurora', voiceType:'aurora', title:'Aurora desde la ISS', mood:'La menor · 72 bpm', bpm:72,
+    srcs:[
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Aurora_Australis_From_ISS_edit1.JPG?width=1400',
+      'https://commons.wikimedia.org/wiki/Special:FilePath/ISS006-E-18387_-_View_of_aurora.jpg?width=1400'
+    ],
+    fallback:['#02110d','#2fbf8a'], rev:.9, choirLvl:1.0,
+    rootPc:9, scale:[0,2,3,5,7,8,10], modeName:'AEOLIAN · CAMPANAS DE CRISTAL',
+    chords:[
+      {n:'Am9',   t:['A2','E3','G3','B3']},
+      {n:'Fmaj7', t:['F2','C3','E3','A3']},
+      {n:'Cmaj7', t:['C3','E3','G3','B3']},
+      {n:'G',     t:['G2','D3','G3','B3']}
+    ]
+  },
+  {
+    key:'nile', voiceType:'nile', title:'Delta del Nilo', mood:'Re dórico · 92 bpm', bpm:92,
+    srcs:[
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Nile_River_and_delta_from_orbit.jpg?width=1400'
+    ],
+    fallback:['#1d3b1e','#8aa345'], rev:.15, choirLvl:.25,
+    rootPc:2, scale:[0,2,3,5,7,9,10], modeName:'DORIAN · CUERDAS Y TAMBOR',
+    chords:[
+      {n:'Dm7', t:['D3','F3','A3','C4']},
+      {n:'G6',  t:['G2','B2','D3','E3']},
+      {n:'Dm7', t:['D3','F3','A3','C4']},
+      {n:'Am7', t:['A2','C3','E3','G3']}
+    ]
+  },
+  {
+    key:'storm', voiceType:'storm', title:'Huracán Isabel', mood:'Fa lidio · 66 bpm', bpm:66,
+    srcs:[
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Hurricane_Isabel_from_ISS.jpg?width=1400'
+    ],
+    fallback:['#0a1830','#cfd8e3'], rev:.6, choirLvl:.7,
+    rootPc:5, scale:[0,2,4,6,7,9,11], modeName:'LYDIAN · VIENTO Y SIERRA',
+    chords:[
+      {n:'Fmaj7', t:['F2','C3','E3','A3']},
+      {n:'G',     t:['G2','D3','G3','B3']},
+      {n:'Dm7',   t:['D2','A2','C3','F3']},
+      {n:'Em7',   t:['E2','B2','D3','G3']}
+    ]
+  },
+  {
+    key:'east', voiceType:'earth', title:'Hemisferio Oriental', mood:'Sol mixolidio · 96 bpm', bpm:96,
+    srcs:[
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Earth_Eastern_Hemisphere.jpg?width=1400',
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Blue_Marble_2002.png?width=1400'
+    ],
+    fallback:['#06203a','#4b8f6a'], rev:.3, choirLvl:.5,
+    rootPc:7, scale:[0,2,4,5,7,9,10], modeName:'MIXOLYDIAN · PIANO ELÉCTRICO',
+    chords:[
+      {n:'G',     t:['G2','D3','G3','B3']},
+      {n:'F',     t:['F2','C3','F3','A3']},
+      {n:'Cadd9', t:['C3','E3','G3','D4']},
+      {n:'Dm7',   t:['D3','F3','A3','C4']}
+    ]
+  },
+  {
+    key:'sahara', voiceType:'nile', title:'Sáhara', mood:'Mi frigio dominante · 88 bpm', bpm:88,
+    srcs:[
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Sahara_satellite_hires.jpg?width=1400'
+    ],
+    fallback:['#3a2410','#d9a441'], rev:.12, choirLvl:.2,
+    rootPc:4, scale:[0,1,4,5,7,8,10], modeName:'PHRYGIAN DOMINANT · CUERDAS Y TAMBOR',
+    chords:[
+      {n:'E',  t:['E2','B2','E3','G#3']},
+      {n:'F',  t:['F2','C3','F3','A3']},
+      {n:'E',  t:['E2','B2','E3','G#3']},
+      {n:'Am', t:['A2','C3','E3','A3']}
+    ]
+  },
+  {
+    key:'antarctica', voiceType:'aurora', title:'Antártida', mood:'Si menor · 60 bpm', bpm:60,
+    srcs:[
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Antarctica_6400px_from_Blue_Marble.jpg?width=1400'
+    ],
+    fallback:['#0b1c2c','#dbe9f4'], rev:.95, choirLvl:1.0,
+    rootPc:11, scale:[0,2,3,5,7,8,10], modeName:'AEOLIAN · CAMPANAS DE HIELO',
+    chords:[
+      {n:'Bm7',   t:['B2','F#3','A3','D4']},
+      {n:'Gmaj7', t:['G2','D3','F#3','B3']},
+      {n:'Dmaj7', t:['D3','A3','C#4','F#4']},
+      {n:'A',     t:['A2','E3','A3','C#4']}
+    ]
+  }
+];
+
+/* ---------- Utilidades ---------- */
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp  = (a,b,t)=>a+(b-a)*t;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const midiToNote = m => Tone.Frequency(m,'midi').toNote();
+function rgbToHsv(r,g,b){
+  r/=255;g/=255;b/=255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
+  let h=0;
+  if(d>0){
+    if(mx===r) h=((g-b)/d)%6; else if(mx===g) h=(b-r)/d+2; else h=(r-g)/d+4;
+    h/=6; if(h<0) h+=1;
+  }
+  return { h, s: mx===0?0:d/mx, v:mx };
+}
+const bassNote = ch => { let m = ch.m[0]; if(m>=45) m-=12; return midiToNote(m); };
+
+/* ---------- Estado ---------- */
+const state = { muted:false, tile:null, hovering:false, step:0, choirReady:false };
+let audio = null;
+
+/* ============================================================
+   ALMACÉN LOCAL (IndexedDB) para imágenes que sueltes tú
+   ============================================================ */
+function idb(){ return new Promise((res,rej)=>{
+  try{
+    const r = indexedDB.open('earth-jukebox',1);
+    r.onupgradeneeded = ()=> r.result.createObjectStore('img');
+    r.onsuccess = ()=> res(r.result);
+    r.onerror = ()=> rej(r.error);
+  }catch(e){ rej(e); }
+});}
+async function idbGet(k){
+  try{ const db = await idb();
+    return await new Promise(res=>{ const q = db.transaction('img').objectStore('img').get(k); q.onsuccess=()=>res(q.result||null); q.onerror=()=>res(null); });
+  }catch(e){ return null; }
+}
+async function idbPut(k,blob){
+  try{ const db = await idb(); db.transaction('img','readwrite').objectStore('img').put(blob,k); }catch(e){}
+}
+
+/* ============================================================
+   DOM
+   ============================================================ */
+const grid = document.getElementById('grid');
+TILES.forEach((T,i)=>{
+  T.index = i;
+  T.pool = [];
+  const r = T.rootPc;
+  for(let oct=4; oct<=5; oct++){
+    T.scale.forEach(s=>{
+      let m = 12*(oct+1) + r + s;
+      if(r>6) m -= 12;
+      T.pool.push(m);
+    });
+  }
+  T.pool.push(T.pool[0]+24);
+  T.poolLo = Math.min(...T.pool); T.poolHi = Math.max(...T.pool);
+  T.chords.forEach(c=>{ c.m = c.t.map(n=>Tone.Frequency(n).toMidi()); c.pcs = new Set(c.m.map(m=>m%12)); });
+
+  const el = document.createElement('div');
+  el.className = 'tile';
+  el.innerHTML = `
+    <figure>
+      <canvas width="${W}" height="${H}" role="img" aria-label="${T.title}: mueve el cursor para tocar la imagen"></canvas>
+      <figcaption>
+        <span class="n">0${i+1}</span><span class="t">${T.title}</span>
+        <span class="m">${T.mood}</span>
+        <button class="swap" type="button">Cargar imagen</button>
+        <button class="swap url" type="button">Pegar URL</button>
+        <input type="file" accept="image/*">
+      </figcaption>
+    </figure>`;
+  grid.appendChild(el);
+
+  T.el = el;
+  T.canvas = el.querySelector('canvas');
+  T.ctx = T.canvas.getContext('2d');
+  T.cap = el.querySelector('.m');
+  T.input = el.querySelector('input');
+  T.hover = false; T.fx = 0; T.pulse = 0;
+  T.px = W/2; T.py = H/2; T.lastPx = T.px; T.lastPy = T.py; T.moved = false;
+  T.speed = 0; T.acc = 0; T.lastNote = 0; T.lastFrame = 0;
+  T.trail = []; T.trailSet = new Map(); T.lastCell = null;
+  T.f = { lum:.5, lumBig:.5, hx:1, hy:0, hue:0, sat:0, contrast:.2, warm:.5, y:.5 };
+  T.chordIdx = 0; T.candIdx = 0; T.candN = 0; T.lastChord = 0;
+  T.melIdx = Math.floor(T.pool.length/2); T.noteCount = 0;
+  T.hist = []; T.noteName = '—'; T.chordName = T.chords[0].n;
+  T.readable = false; T.ready = false;
+  T.tmp = document.createElement('canvas');
+
+  el.querySelector('.swap').addEventListener('click', ()=> T.input.click());
+  el.querySelector('.swap.url').addEventListener('click', ()=>{
+    const u = prompt('URL de una imagen de la Tierra (https://…):');
+    if(!u) return;
+    try{ localStorage.setItem('ej-url-'+T.key, u.trim()); }catch(e){}
+    idbPut(T.key, null);
+    T.ready = false; T.loading = true; loadTile(T);
+  });
+  T.input.addEventListener('change', ()=>{ const f = T.input.files[0]; if(f) setLocalImage(T,f); });
+  T.canvas.addEventListener('dragover', e=>{ e.preventDefault(); el.classList.add('drag'); });
+  T.canvas.addEventListener('dragleave', ()=> el.classList.remove('drag'));
+  T.canvas.addEventListener('drop', e=>{
+    e.preventDefault(); el.classList.remove('drag');
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f && f.type.startsWith('image/')) setLocalImage(T,f);
+  });
+});
+
+/* ============================================================
+   CARGA DE IMÁGENES
+   ============================================================ */
+function newBase(T){
+  T.base = document.createElement('canvas');
+  T.base.width = W; T.base.height = H;
+  T.bctx = T.base.getContext('2d', { willReadFrequently:true });
+}
+function drawCover(T,img){
+  newBase(T);
+  const s = Math.max(W/img.width, H/img.height);
+  const w = img.width*s, h = img.height*s;
+  T.bctx.drawImage(img,(W-w)/2,(H-h)/2,w,h);
+}
+function finishTile(T, readable, text){
+  T.ready = true; T.readable = readable;
+  T.cap.textContent = text || T.mood;
+  T.ctx.drawImage(T.base,0,0);
+}
+function loadFromBlob(T,blob){
+  return new Promise(res=>{
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = ()=>{ drawCover(T,img); URL.revokeObjectURL(url); finishTile(T,true); res(true); };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); res(false); };
+    img.src = url;
+  });
+}
+async function setLocalImage(T,file){
+  if(await loadFromBlob(T,file)) idbPut(T.key,file);
+}
+async function loadTile(T){
+  newBase(T);
+  T.bctx.fillStyle = '#111'; T.bctx.fillRect(0,0,W,H);
+  T.ctx.drawImage(T.base,0,0);
+
+  // 1) imagen guardada por ti
+  const saved = await idbGet(T.key);
+  if(saved && await loadFromBlob(T,saved)) return;
+
+  // 2) URLs remotas con CORS (permiten leer los píxeles)
+  let list;
+  try{ const u = localStorage.getItem('ej-url-'+T.key); list = u ? [u, ...T.srcs] : T.srcs.slice(); }catch(e){ list = T.srcs.slice(); }
+  T.list = list;
+  let i = 0;
+  const next = ()=>{
+    if(i >= list.length){ displayOnly(T); return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = ()=>{
+      drawCover(T,img);
+      try{ T.bctx.getImageData(0,0,1,1); }catch(e){ next(); return; }
+      finishTile(T,true);
+    };
+    img.onerror = next;
+    img.src = list[i++];
+  };
+  next();
+}
+function displayOnly(T){
+  // 3) mostrar sin CORS (no se pueden leer píxeles → el sonido usa un campo sintético)
+  const img = new Image();
+  img.onload = ()=>{ drawCover(T,img); finishTile(T,false,'solo vista · suelta tu imagen para leer píxeles'); };
+  img.onerror = ()=> placeholder(T);
+  img.src = (T.list||T.srcs)[0];
+}
+function placeholder(T){
+  newBase(T);
+  const g = T.bctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,T.fallback[0]); g.addColorStop(1,T.fallback[1]);
+  T.bctx.fillStyle = g; T.bctx.fillRect(0,0,W,H);
+  const rnd = mulberry32(T.index+11);
+  for(let k=0;k<160;k++){
+    T.bctx.fillStyle = `rgba(255,255,255,${rnd()*.09})`;
+    T.bctx.beginPath(); T.bctx.arc(rnd()*W,rnd()*H,10+rnd()*90,0,7); T.bctx.fill();
+  }
+  T.bctx.fillStyle = 'rgba(255,255,255,.75)';
+  T.bctx.font = '500 22px "JetBrains Mono", monospace'; T.bctx.textAlign = 'center';
+  T.bctx.fillText('Suelta aquí una imagen de la NASA', W/2, H/2);
+  T.bctx.textAlign = 'start';
+  finishTile(T,false,'sin imagen · suelta una o usa "Cargar imagen"');
+}
+
+/* ============================================================
+   ANÁLISIS DE PÍXELES
+   ============================================================ */
+function samplePixels(T){
+  const f = T.f;
+  let lum, lumBig, hue, sat, contrast, warm;
+  if(T.readable){
+    const R = 18, S = 2*R+1;
+    const x = clamp(Math.round(T.px)-R, 0, W-S);
+    const y = clamp(Math.round(T.py)-R, 0, H-S);
+    const ci = Math.round(T.px)-x, cj = Math.round(T.py)-y;
+    const d = T.bctx.getImageData(x,y,S,S).data;
+    let r=0,g=0,b=0,n=0, sr=0,sg=0,sb=0,sn=0, ls=0,ls2=0,ln=0;
+    for(let j=0;j<S;j++){
+      for(let i=0;i<S;i++){
+        const p = (j*S+i)*4;
+        r+=d[p]; g+=d[p+1]; b+=d[p+2]; n++;
+        const di = Math.abs(i-ci), dj = Math.abs(j-cj);
+        if(di<=7 && dj<=7){
+          const l = .299*d[p]+.587*d[p+1]+.114*d[p+2];
+          ls+=l; ls2+=l*l; ln++;
+          if(di<=2 && dj<=2){ sr+=d[p]; sg+=d[p+1]; sb+=d[p+2]; sn++; }
+        }
+      }
+    }
+    lum = (.299*sr+.587*sg+.114*sb)/sn/255;
+    lumBig = (.299*r+.587*g+.114*b)/n/255;
+    const hsv = rgbToHsv(r/n,g/n,b/n);
+    hue = hsv.h; sat = hsv.s;
+    const lm = ls/ln;
+    contrast = clamp(Math.sqrt(Math.max(0,ls2/ln-lm*lm))/40, 0, 1);
+    warm = clamp((r/n - b/n)/255 + .5, 0, 1);
+  } else {
+    // campo sintético suave (solo si no se pueden leer los píxeles)
+    const u = T.px/W, v = T.py/H, k = T.index*1.7;
+    lum = clamp(.5+.28*Math.sin(u*9+k)+.15*Math.sin(v*13-u*5)+.1*Math.sin((u+v)*21),0,1);
+    lumBig = clamp(.5+.28*Math.sin(u*7+k)+.15*Math.sin(v*9),0,1);
+    hue = (u*.6+v*.3+k*.1)%1; sat = .6;
+    contrast = clamp(.5+.5*Math.sin(u*17+v*11),0,1)*.6;
+    warm = u;
+  }
+  const kk = .4;
+  f.lum = lerp(f.lum, lum, kk);
+  f.lumBig = lerp(f.lumBig, lumBig, .25);
+  f.hx = lerp(f.hx, Math.cos(hue*6.2832), .25); f.hy = lerp(f.hy, Math.sin(hue*6.2832), .25);
+  f.hue = ((Math.atan2(f.hy,f.hx)/6.2832)+1)%1;
+  f.sat = lerp(f.sat, sat, .25);
+  f.contrast = lerp(f.contrast, contrast, .3);
+  f.warm = lerp(f.warm, warm, .25);
+  f.y = lerp(f.y, T.py/H, .4);
+}
+
+/* La armonía sigue al color de la zona que estás tocando */
+function updateHarmony(T,now){
+  const f = T.f, n = T.chords.length;
+  const p = f.sat < .14 ? f.lumBig : ((f.hue*.75 + f.lumBig*.25) % 1);
+  const cand = Math.min(n-1, Math.floor(p*n));
+  if(cand === T.chordIdx){ T.candN = 0; return; }
+  if(cand === T.candIdx) T.candN++; else { T.candIdx = cand; T.candN = 1; }
+  if(T.candN >= 5 && now - T.lastChord > 650){
+    T.chordIdx = cand; T.lastChord = now; T.candN = 0;
+    T.chordName = T.chords[cand].n;
+    document.getElementById('t-chord').textContent = T.chordName;
+    if(audio && T.voice && T.hover) T.voice.chord(T.chords[cand], Tone.now()+.02, Tone.Time('1m').toSeconds());
+  }
+}
+
+/* ============================================================
+   MOVIMIENTO → NOTAS
+   ============================================================ */
+const STEP_PX = 28, MIN_GAP = 110;   // menos notas por segundo = menos acumulación
+
+function pickNote(T){
+  const f = T.f, pool = T.pool, hi = pool.length-1;
+  const target = (f.lum*.6 + (1-f.y)*.4) * hi;
+  let idx = Math.round(lerp(T.melIdx, target, .7));
+  const chord = T.chords[T.chordIdx];
+  if(T.noteCount % 2 === 0) idx = nearestChordIdx(idx, pool, chord.pcs);
+  if(idx === T.melIdx && Math.random() < .5) idx = clamp(idx + (Math.random()<.5?-1:1), 0, hi);
+  T.melIdx = clamp(idx,0,hi);
+  T.noteCount++;
+  return pool[T.melIdx];
+}
+function nearestChordIdx(idx, pool, pcs){
+  for(let d=0; d<=3; d++){
+    for(const s of (d===0?[0]:[d,-d])){
+      const j = idx + s;
+      if(j>=0 && j<pool.length && pcs.has(pool[j]%12)) return j;
+    }
+  }
+  return idx;
+}
+function triggerNote(T,now){
+  const m = pickNote(T);
+  const sn = clamp(T.speed/1400,0,1);
+  const vel = (.42 + sn*.18) * (1 - sn*.3);   // rápido = más notas pero más suaves (antes: más fuertes)
+  T.voice.note(m, vel, Tone.now()+.01);
+  T.pulse = 1; T.noteName = midiToNote(m);
+  T.hist.push(m); if(T.hist.length>16) T.hist.shift();
+  document.getElementById('t-note').textContent = T.noteName;
+  document.getElementById('t-lum').textContent = Math.round(T.f.lum*100)+'%';
+}
+function motion(T,now,dt){
+  const dx = T.px-T.lastPx, dy = T.py-T.lastPy;
+  const dist = Math.hypot(dx,dy);
+  T.lastPx = T.px; T.lastPy = T.py;
+  const inst = dist / Math.max(dt,8) * 1000;
+  T.speed = lerp(T.speed, inst, .2);
+  document.getElementById('t-vel').textContent = Math.round(T.speed);
+  if(!audio || !T.voice) return;
+  if(dt > 100){ T.acc = 0; return; }   // el hilo se trabó: no soltar ráfagas de notas atrasadas
+  T.acc += dist;
+  if(T.acc >= STEP_PX && now - T.lastNote > MIN_GAP){
+    T.acc = 0; T.lastNote = now;
+    triggerNote(T,now);
+  }
+  const sn = clamp(T.speed/1400,0,1);
+  if(now - (T.lastUpd||0) > 60){ T.lastUpd = now; T.voice.update(T.f, sn, T.px/W, T.py/H); }  // ~16 Hz en vez de 60 Hz
+}
+
+/* ============================================================
+   EFECTOS VISUALES
+   ============================================================ */
+const CELL = 14;
+function addTrailCell(T,cx,cy,now){
+  const key = cx+','+cy;
+  if(T.trailSet.has(key)){ T.trailSet.get(key).t = now; return; }
+  const c = { cx, cy, t:now, k:Math.random() };
+  T.trail.push(c); T.trailSet.set(key,c);
+  if(T.trail.length > 320){ const o = T.trail.shift(); T.trailSet.delete(o.cx+','+o.cy); }
+}
+function updateTrail(T,now){
+  const cx = Math.floor(T.px/CELL), cy = Math.floor(T.py/CELL);
+  if(!T.lastCell){ addTrailCell(T,cx,cy,now); T.lastCell=[cx,cy]; return; }
+  let [x0,y0] = T.lastCell;
+  if(x0===cx && y0===cy) return;
+  const dx=Math.abs(cx-x0), dy=Math.abs(cy-y0), sx=x0<cx?1:-1, sy=y0<cy?1:-1;
+  let err=dx-dy;
+  while(true){
+    addTrailCell(T,x0,y0,now);
+    if(x0===cx && y0===cy) break;
+    const e2=2*err;
+    if(e2>-dy){ err-=dy; x0+=sx; }
+    if(e2<dx){ err+=dx; y0+=sy; }
+  }
+  T.lastCell=[cx,cy];
+}
+function pruneTrail(T,now){
+  while(T.trail.length && now - T.trail[0].t > 6500){
+    const o = T.trail.shift(); T.trailSet.delete(o.cx+','+o.cy);
+  }
+}
+function drawTrail(T,now){
+  if(!T.trail.length) return;
+  const c = T.ctx, LIFE = 6500;
+  const live = (cx,cy)=>{ const o = T.trailSet.get(cx+','+cy); return o && (now-o.t) < LIFE; };
+  for(const o of T.trail){
+    const a = clamp((LIFE-(now-o.t))/2500, 0, 1);
+    const l = .84 + o.k*.12;
+    c.fillStyle = `rgba(${WATER[0]*l|0},${WATER[1]*l|0},${WATER[2]*l|0},${.88*a})`;
+    c.fillRect(o.cx*CELL, o.cy*CELL, CELL, CELL);
+  }
+  c.lineWidth = 1.6; c.strokeStyle = 'rgba(30,45,40,.8)';
+  c.beginPath();
+  for(const o of T.trail){
+    const x=o.cx*CELL, y=o.cy*CELL;
+    if(!live(o.cx,o.cy-1)){ c.moveTo(x,y); c.lineTo(x+CELL,y); }
+    if(!live(o.cx,o.cy+1)){ c.moveTo(x,y+CELL); c.lineTo(x+CELL,y+CELL); }
+    if(!live(o.cx-1,o.cy)){ c.moveTo(x,y); c.lineTo(x,y+CELL); }
+    if(!live(o.cx+1,o.cy)){ c.moveTo(x+CELL,y); c.lineTo(x+CELL,y+CELL); }
+  }
+  c.stroke();
+}
+function drawGlitch(T,now){
+  const c = T.ctx, f = T.f, fx = T.fx, sn = clamp(T.speed/1400,0,1);
+  const rnd = mulberry32(Math.floor(now/130)*9301 + T.index*77 + 5);
+  const n = Math.round((3 + f.contrast*7 + T.pulse*4 + sn*7) * fx);
+  for(let i=0;i<n;i++){
+    const bw = (2+Math.floor(rnd()*7))*24, bh = (1+Math.floor(rnd()*4))*18;
+    let dx = Math.round((T.px + (rnd()-.5)*460)/24)*24;
+    let dy = Math.round((T.py + (rnd()-.5)*320)/18)*18;
+    dx = clamp(dx,0,W-bw); dy = clamp(dy,0,H-bh);
+    const sx = clamp(dx + (rnd()-.5)*340, 0, W-bw);
+    const sy = clamp(dy + (rnd()-.5)*90, 0, H-bh);
+    c.drawImage(T.base, sx,sy,bw,bh, dx,dy,bw,bh);
+    const q = rnd();
+    if(q<.28){ c.fillStyle='rgba(0,0,0,.30)'; c.fillRect(dx,dy,bw,bh); }
+    else if(q<.38){ c.fillStyle='rgba(255,255,255,.12)'; c.fillRect(dx,dy,bw,bh); }
+  }
+}
+const MW = 168, MH = 120, MC = 12;
+function mosaicRect(T){
+  return { x: clamp(Math.round((T.px-MW/2)/MC)*MC, 0, W-MW),
+           y: clamp(Math.round((T.py-MH/2)/MC)*MC, 0, H-MH) };
+}
+function drawMosaic(T,m){
+  const c = T.ctx, t = T.tmp;
+  t.width = MW/MC; t.height = MH/MC;
+  const tc = t.getContext('2d');
+  tc.imageSmoothingEnabled = true;
+  tc.drawImage(T.base, m.x,m.y,MW,MH, 0,0,t.width,t.height);
+  c.imageSmoothingEnabled = false;
+  c.drawImage(t, 0,0,t.width,t.height, m.x,m.y,MW,MH);
+  c.imageSmoothingEnabled = true;
+}
+function arrow(c,x,y,ang){
+  c.save(); c.translate(x,y); c.rotate(ang);
+  c.beginPath(); c.moveTo(0,0); c.lineTo(-16,-7); c.lineTo(-11,0); c.lineTo(-16,7); c.closePath(); c.fill();
+  c.restore();
+}
+function drawHUD(T,now,m){
+  const c = T.ctx, f = T.f, fx = T.fx, p = clamp(T.pulse,0,1.4);
+  c.save();
+  c.globalAlpha = clamp(fx,0,1);
+  c.strokeStyle = YEL; c.fillStyle = YEL; c.lineWidth = 1.6;
+  c.font = '600 14px "JetBrains Mono", monospace';
+
+  c.strokeRect(m.x+.5, m.y+.5, MW, MH);
+  const cx = Math.round(T.px/MC)*MC, cy = Math.round(T.py/MC)*MC;
+  const ix = clamp(cx-MC/2, m.x, m.x+MW-MC), iy = clamp(cy-MC/2, m.y, m.y+MH-MC);
+  c.strokeRect(ix+.5, iy+.5, MC, MC);
+
+  const off = 8 + p*12;
+  for(const [x,y,sx,sy] of [[m.x,m.y,-1,-1],[m.x+MW,m.y,1,-1],[m.x,m.y+MH,-1,1],[m.x+MW,m.y+MH,1,1]]){
+    for(let k=0;k<3;k++){ const d = off + k*7; c.fillRect(x+sx*d-2, y+sy*d-2, 4, 4); }
+  }
+
+  const lx = clamp(m.x, 6, W-230);
+  const topY = m.y > 28 ? m.y-10 : m.y+MH+22;
+  const botY = m.y > 28 ? m.y+MH+22 : m.y-10;
+  c.fillText(`NOTA ${T.noteName}`, lx, topY);
+  c.fillText(`LUZ ${Math.round(f.lum*100)}  ${T.chordName}`, lx, botY);
+
+  let ry = m.y + MH + 40; if(ry+110 > H-8) ry = m.y - 150;
+  ry = clamp(ry, 8, H-120);
+  const rx = clamp(T.px, 30, W-30);
+  c.beginPath(); c.moveTo(rx,ry); c.lineTo(rx,ry+110); c.stroke();
+  for(let i=0;i<=10;i++){
+    const ty = ry+i*11, len = i%5===0 ? 9 : 4;
+    c.beginPath(); c.moveTo(rx-len,ty); c.lineTo(rx+len,ty); c.stroke();
+  }
+  c.beginPath(); c.moveTo(rx-20,ry+30); c.lineTo(rx+20,ry+30); c.stroke();
+  c.beginPath(); c.arc(rx,ry+30,4,0,7); c.stroke();
+
+  if(m.x + MW < W-170){
+    c.setLineDash([6,5]);
+    c.beginPath(); c.moveTo(m.x+MW+6,T.py); c.lineTo(W-150,T.py); c.stroke();
+    c.setLineDash([]);
+    const ty = clamp(T.py,14,H-14);
+    c.strokeRect(W-146,ty-12,124,24);
+    c.font = '600 12px "JetBrains Mono", monospace';
+    c.fillText(`PX ${Math.round(T.px)},${Math.round(T.py)}`, W-138, ty+4);
+    c.font = '600 14px "JetBrains Mono", monospace';
+  }
+
+  c.globalAlpha = clamp(fx,0,1) * (.55 + .45*Math.min(p,1));
+  arrow(c, m.x+MW+10, m.y-6, 2.356);
+  arrow(c, m.x+MW+38, m.y-22, 2.356);
+  c.globalAlpha = clamp(fx,0,1);
+
+  // contorno de las últimas 16 notas que has tocado
+  const x0 = W/2 - 16*10;
+  for(let i=0;i<16;i++){
+    const x = x0 + i*20 + 10;
+    const mm = T.hist[T.hist.length-16+i];
+    c.beginPath();
+    if(mm === undefined){ c.arc(x,24,1.6,0,7); c.stroke(); }
+    else {
+      const t = (mm-T.poolLo)/Math.max(1,T.poolHi-T.poolLo);
+      c.arc(x, 44 - t*32, i===15 ? 5.5 : 3.4, 0, 7); c.fill();
+    }
+  }
+
+  c.font = '600 12px "JetBrains Mono", monospace';
+  c.fillText(`${T.modeName}  ·  ${T.bpm} BPM`, 16, H-16);
+  c.restore();
+}
+function drawTile(T,now){
+  T.ctx.drawImage(T.base,0,0);
+  if(T.fx > .02){ drawGlitch(T,now); drawMosaic(T,mosaicRect(T)); }
+  drawTrail(T,now);
+  if(T.fx > .02) drawHUD(T,now,mosaicRect(T));
+}
+
+/* ---------- Bucle de render ---------- */
+function frame(now){
+  requestAnimationFrame(frame);
+  for(const T of TILES){
+    if(!T.ready || !T.active) continue;
+    const dt = T.lastFrame ? now - T.lastFrame : 16; T.lastFrame = now;
+    T.fx += ((T.hover?1:0) - T.fx) * .14;
+    T.pulse *= .9;
+    if(T.hover){
+      samplePixels(T);
+      updateHarmony(T,now);
+      motion(T,now,dt);
+      if(T.moved){ updateTrail(T,now); T.moved = false; }
+    } else {
+      T.speed *= .9;
+    }
+    pruneTrail(T,now);
+    if(T.hover || T.fx>.02 || T.trail.length){ drawTile(T,now); T.dirty = true; }
+    else if(T.dirty){ T.ctx.drawImage(T.base,0,0); T.dirty = false; }
+  }
+}
+
+/* ============================================================
+   PUNTERO
+   ============================================================ */
+function toCanvas(T,e){
+  const r = T.canvas.getBoundingClientRect();
+  return [(e.clientX-r.left)*W/r.width, (e.clientY-r.top)*H/r.height];
+}
+TILES.forEach(T=>{
+  const cv = T.canvas;
+  cv.addEventListener('pointerenter', e=>{ [T.px,T.py] = toCanvas(T,e); T.lastPx = T.px; T.lastPy = T.py; enterTile(T); });
+  cv.addEventListener('pointerdown',  e=>{
+    [T.px,T.py] = toCanvas(T,e); T.moved = true; enterTile(T);
+    ensureVoice(T);
+    if(audio && T.voice){ T.voice.chord(T.chords[T.chordIdx], Tone.now()+.01, Tone.Time('1m').toSeconds()); T.pulse = 1.5; }
+  });
+  cv.addEventListener('pointermove',  e=>{ [T.px,T.py] = toCanvas(T,e); T.moved = true; if(!T.hover) enterTile(T); });
+  cv.addEventListener('pointerleave', ()=> leaveTile(T));
+  cv.addEventListener('pointercancel',()=> leaveTile(T));
+});
+function enterTile(T){
+  if(T.hover) return;
+  T.hover = true; T.el.classList.add('on'); T.lastCell = null;
+  T.lastPx = T.px; T.lastPy = T.py; T.acc = 0;
+  ensureVoice(T);
+  if(!audio || !T.voice) return;
+  state.tile = T; state.hovering = true; state.step = 0;
+  Tone.Transport.bpm.rampTo(T.bpm, .4);
+  T.voice.out.gain.cancelScheduledValues(Tone.now());
+  T.voice.out.gain.rampTo(1, .2);
+  audio.choirG.gain.rampTo(T.choirLvl*.5, .2); audio.choirSend.gain.rampTo(T.rev*.6, .2);
+  document.getElementById('t-bpm').textContent = T.bpm;
+  document.getElementById('t-chord').textContent = T.chordName;
+}
+function leaveTile(T){
+  if(!T.hover) return;
+  T.hover = false; T.el.classList.remove('on');
+  if(audio && T.voice){
+    T.voice.out.gain.cancelScheduledValues(Tone.now());
+    T.voice.out.gain.rampTo(0, 1.4);
+    setTimeout(()=>{ if(!T.hover && T.voice) T.voice.hush(); }, 1600);
+  }
+  if(state.tile === T) state.hovering = false;
+}
+
+/* ============================================================
+   MOTOR MUSICAL — un instrumento distinto por imagen
+   ============================================================ */
+async function buildAudio(){
+  /* Cadena maestra con margen (headroom):
+     voces → bus → pasa-altos 30Hz → compresor suave → saturador tanh → limitador → volumen */
+  const vol = new Tone.Volume(-6).toDestination();
+  const limiter = new Tone.Limiter(-3).connect(vol);
+  const clip = new Tone.WaveShaper(x=>Math.tanh(x)); clip.oversample = '2x'; clip.connect(limiter);
+  const comp = new Tone.Compressor({ threshold:-20, ratio:4, attack:.01, release:.25, knee:12 }).connect(clip);
+  const hp = new Tone.Filter(30,'highpass').connect(comp);
+  const bus = new Tone.Gain(.6).connect(hp);
+  const reverb = new Tone.Reverb({ decay:7, wet:1 }).connect(bus);
+  await reverb.ready;
+  const revIn = new Tone.Filter(220,'highpass').connect(reverb);   // sin graves en la reverb
+
+  /* Coro compartido: UNA sola ruta (antes se conectaba a la salida de cada imagen visitada) */
+  const choirG = new Tone.Gain(.5).connect(bus);
+  const choirSend = new Tone.Gain(.3).connect(revIn); choirG.connect(choirSend);
+  const choir = new Tone.Sampler({
+    urls:{ C3:'C3.mp3', C4:'C4.mp3', G4:'G4.mp3', C5:'C5.mp3' },
+    baseUrl:'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/choir_aahs-mp3/',
+    attack:.7, release:2.5,
+    onload:()=>{ state.choirReady = true; document.getElementById('choir-state').textContent = 'coro: listo'; },
+    onerror:()=>{ document.getElementById('choir-state').textContent = 'coro: sin conexión'; }
+  }).connect(choirG);
+  choir.volume.value = -14;
+  document.getElementById('choir-state').textContent = 'coro: cargando…';
+
+  audio = { vol, limiter, reverb, revIn, bus, choir, choirG, choirSend };
+  ensureVoice(TILES[carousel.index]);
+
+  Tone.Transport.scheduleRepeat(onStep, '16n');
+  Tone.Transport.start();
+}
+
+function ensureVoice(T){ if(audio && !T.voice) T.voice = buildVoice(T, audio); }
+
+function buildVoice(T, A){
+  const out = new Tone.Gain(0).connect(A.bus);
+  const send = new Tone.Gain(T.rev*.6).connect(A.revIn); out.connect(send);
+  const pan = new Tone.Panner(0).connect(out);
+  const V = { out, polys:[] };
+  /* PolySynth con polifonía limitada: antes eran hasta 32 voces superpuestas por sintetizador */
+  const poly = (S,o,max)=>{ const p = new Tone.PolySynth(S,o); p.maxPolyphony = max; V.polys.push(p); return p; };
+  let n = 0, lastChord = -9, lastSing = -9;
+  const sing = (m,dur,t,v)=>{ if(state.choirReady && t-lastSing>.6){ lastSing = t; A.choir.triggerAttackRelease(midiToNote(m),dur,t,v*.6); } };
+  const sangChord = (ch,shift,dur,t,v)=>{ if(state.choirReady){ A.choir.releaseAll(t); A.choir.triggerAttackRelease(ch.m.slice(1).map(x=>midiToNote(x+shift)),dur,t,v*.6); } };
+
+  if(T.voiceType === 'earth'){
+    const delay = new Tone.FeedbackDelay({ delayTime:'8n', feedback:.25, wet:.18 }).connect(pan);
+    const lead = poly(Tone.FMSynth, {
+      harmonicity:2.01, modulationIndex:4, oscillator:{ type:'sine' },
+      envelope:{ attack:.004, decay:.6, sustain:.03, release:.9 },
+      modulation:{ type:'triangle' },
+      modulationEnvelope:{ attack:.002, decay:.4, sustain:0, release:.4 }
+    }, 8).connect(delay); lead.volume.value = -14;
+    const padF = new Tone.Filter(1400,'lowpass').connect(out);
+    const pad = poly(Tone.Synth, { oscillator:{ type:'triangle' }, envelope:{ attack:1.2, decay:1, sustain:.7, release:2.2 } }, 6).connect(padF);
+    pad.volume.value = -25;
+    const bass = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:.03, decay:.5, sustain:.5, release:1 } }).connect(out);
+    bass.volume.value = -11;
+    const arp = poly(Tone.Synth, { oscillator:{ type:'sine' }, envelope:{ attack:.005, decay:.25, sustain:0, release:.4 } }, 4).connect(delay);
+    arp.volume.value = -23;
+    V.note = (m,vel,t)=>{ lead.triggerAttackRelease(midiToNote(m),'8n',t,vel); if(++n%4===0) sing(m,'2n',t,.5); };
+    V.chord = (ch,t,bar)=>{ pad.releaseAll(t); pad.triggerAttackRelease(ch.t,bar*1.05,t,.5); sangChord(ch,12,bar*1.1,t,.5); bass.triggerAttackRelease(bassNote(ch),'2n',t,.7); };
+    V.tick = (s,t,sn,ch)=>{ if(sn>.08 && s%2===0) arp.triggerAttackRelease(midiToNote(ch.m[(s/2)%ch.m.length]+12),'16n',t,.15+sn*.15); };
+    V.update = (f,sn,xn)=>{ pan.pan.rampTo((xn-.5)*1.4,.15); padF.frequency.rampTo(600+f.warm*1800,.25); };
+
+  } else if(T.voiceType === 'aurora'){
+    const delay = new Tone.FeedbackDelay({ delayTime:'4n.', feedback:.4, wet:.3 }).connect(pan);
+    const lead = poly(Tone.FMSynth, {
+      harmonicity:5.07, modulationIndex:8, oscillator:{ type:'sine' },
+      envelope:{ attack:.01, decay:1.8, sustain:0, release:2.5 },
+      modulation:{ type:'sine' },
+      modulationEnvelope:{ attack:.002, decay:1, sustain:0, release:1.5 }
+    }, 6).connect(delay); lead.volume.value = -22;
+    const pad = poly(Tone.Synth, { oscillator:{ type:'sine' }, envelope:{ attack:3, decay:2, sustain:.8, release:4 } }, 4).connect(out);
+    pad.volume.value = -23;
+    const sub = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:1.5, decay:1, sustain:.7, release:3 } }).connect(out);
+    sub.volume.value = -18;
+    V.note = (m,vel,t)=>{ lead.triggerAttackRelease(midiToNote(m+12),'2n',t,vel); if(++n%3===0) sing(m,'2n',t,.6); };
+    V.chord = (ch,t,bar)=>{ pad.releaseAll(t); pad.triggerAttackRelease(ch.t,bar*1.2,t,.5); sangChord(ch,12,bar*1.2,t,.75); sub.triggerAttackRelease(bassNote(ch),bar*1.1,t,.6); };
+    V.tick = (s,t,sn,ch)=>{ if(sn>.1 && s%4===2) lead.triggerAttackRelease(midiToNote(ch.m[Math.floor(Math.random()*ch.m.length)]+24),'4n',t,.1+sn*.12); };
+    V.update = (f,sn,xn,yn)=>{ pan.pan.rampTo((xn-.5)*1.8,.15); delay.wet.rampTo(.2+(1-yn)*.25,.25); };
+
+  } else if(T.voiceType === 'nile'){
+    /* 6 cuerdas en rotación (antes 4): una cuerda aún sonando se reiniciaba y daba estallidos */
+    const plucks = [0,1,2,3,4,5].map(()=>{ const p = new Tone.PluckSynth({ attackNoise:1, dampening:2800, resonance:.94 }).connect(pan); p.volume.value = -9; return p; });
+    let pi = 0;
+    const dum = new Tone.MembraneSynth({ pitchDecay:.03, octaves:3, envelope:{ attack:.001, decay:.35, sustain:0, release:.1 } }).connect(out);
+    dum.volume.value = -11;
+    const tekF = new Tone.Filter(5200,'highpass').connect(out);
+    const tek = new Tone.NoiseSynth({ noise:{ type:'white' }, envelope:{ attack:.001, decay:.06, sustain:0 } }).connect(tekF);
+    tek.volume.value = -24;
+    const bass = new Tone.Synth({ oscillator:{ type:'triangle' }, envelope:{ attack:.01, decay:.3, sustain:.2, release:.4 } }).connect(out);
+    bass.volume.value = -11;
+    const padF = new Tone.Filter(900,'lowpass').connect(out);
+    const pad = poly(Tone.Synth, { oscillator:{ type:'sawtooth' }, envelope:{ attack:.8, decay:.5, sustain:.7, release:1.6 } }, 4).connect(padF);
+    pad.volume.value = -31;
+    const pat = ['D','T','-','T','D','-','T','-'];
+    V.note = (m,vel,t)=>{ plucks[pi++%6].triggerAttack(midiToNote(m),t); };
+    V.chord = (ch,t,bar)=>{ pad.releaseAll(t); pad.triggerAttackRelease(ch.t,bar*1.05,t,.5); sangChord(ch,12,bar*1.1,t,.4); bass.triggerAttackRelease(bassNote(ch),'8n',t,.8); };
+    V.tick = (s,t,sn,ch)=>{
+      if(sn <= .06) return;
+      if(s%2===0){
+        const c = pat[(s/2)%8];
+        if(c==='D') dum.triggerAttackRelease(bassNote(ch),'16n',t,.5+sn*.25);
+        else if(c==='T' && sn>.3) tek.triggerAttackRelease('32n',t,.5);
+      }
+      if(s===8 && sn>.15) bass.triggerAttackRelease(bassNote(ch),'8n',t,.6);
+    };
+    V.update = (f,sn,xn)=>{ pan.pan.rampTo((xn-.5)*1.2,.15); };
+
+  } else {
+    const vib = new Tone.Vibrato(5,.15).connect(pan);
+    const leadF = new Tone.Filter(900,'lowpass').connect(vib); leadF.Q.value = 2;
+    const lead = poly(Tone.Synth, { oscillator:{ type:'sawtooth' }, envelope:{ attack:.12, decay:.5, sustain:.4, release:1.6 } }, 4).connect(leadF);
+    lead.volume.value = -21;
+    const padF = new Tone.Filter(700,'lowpass').connect(out);
+    const pad = poly(Tone.Synth, { oscillator:{ type:'fatsawtooth', count:3, spread:40 }, envelope:{ attack:2.5, decay:1, sustain:.7, release:4 } }, 4).connect(padF);
+    pad.volume.value = -27;
+    const sub = new Tone.Synth({ oscillator:{ type:'sine' }, envelope:{ attack:.8, decay:1, sustain:.8, release:2.5 } }).connect(out);
+    sub.volume.value = -12;
+    const noise = new Tone.Noise('pink');
+    const nF = new Tone.Filter(400,'bandpass'); nF.Q.value = 1.2;
+    const nG = new Tone.Gain(0).connect(out);
+    noise.connect(nF); nF.connect(nG); noise.start();
+    V.note = (m,vel,t)=>{ lead.triggerAttackRelease(midiToNote(m-12),'4n',t,vel); if(++n%4===0) sing(m-12,'1m',t,.6); };
+    V.chord = (ch,t,bar)=>{ pad.releaseAll(t); pad.triggerAttackRelease(ch.t,bar*1.1,t,.5); sangChord(ch,0,bar*1.1,t,.6); sub.triggerAttackRelease(bassNote(ch),bar*1.05,t,.8); };
+    V.tick = ()=>{};
+    V.update = (f,sn,xn,yn)=>{
+      leadF.frequency.rampTo(300 + f.lum*1800 + sn*900, .15);
+      nF.frequency.rampTo(250 + xn*1800, .15);
+      nG.gain.rampTo(.02 + sn*.08, .2);
+      pan.pan.rampTo((xn-.5)*1.2,.15);
+    };
+  }
+
+  /* Anti-apilamiento: nunca dos acordes casi a la vez (entrada al recuadro + clic + cambio de color) */
+  const rawChord = V.chord;
+  V.chord = (ch,t,bar)=>{ if(t - lastChord < .4) return; lastChord = t; rawChord(ch,t,bar); };
+  V.hush = ()=>{ V.polys.forEach(p=>p.releaseAll()); };
+  return V;
+}
+
+/* Reloj: solo sostiene la armonía y el ritmo que tu movimiento activa */
+function onStep(time){
+  const s = state.step % 16;
+  state.step++;
+  const T = state.tile;
+  if(!T || !state.hovering) return;
+  const sn = clamp(T.speed/1400,0,1);
+  const ch = T.chords[T.chordIdx];
+  if(s === 0) T.voice.chord(ch, time, Tone.Time('1m').toSeconds());
+  T.voice.tick(s, time, sn, ch);
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+const carousel = { index:0 };
+function goTo(i){
+  const n = TILES.length; i = (i%n+n)%n;
+  const cur = TILES[carousel.index];
+  if(cur.hover) leaveTile(cur);
+  cur.active = false; cur.el.classList.remove('active');
+  carousel.index = i;
+  const T = TILES[i];
+  T.active = true; T.el.classList.add('active');
+  if(!T.loading){ T.loading = true; loadTile(T); }
+  const nx = TILES[(i+1)%n];
+  if(!nx.loading){ nx.loading = true; loadTile(nx); }
+  document.getElementById('count').innerHTML = '<b>'+String(i+1).padStart(2,'0')+'</b> / '+String(n).padStart(2,'0');
+  document.getElementById('t-bpm').textContent = T.bpm;
+  document.getElementById('t-chord').textContent = T.chordName;
+  if(T.ready){ T.ctx.drawImage(T.base,0,0); }
+  if(audio) ensureVoice(T);
+}
+document.getElementById('prev').addEventListener('click', ()=> goTo(carousel.index-1));
+document.getElementById('next').addEventListener('click', ()=> goTo(carousel.index+1));
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft') goTo(carousel.index-1);
+  if(e.key==='ArrowRight') goTo(carousel.index+1);
+});
+goTo(0);
+
+document.getElementById('btn-start').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btn-start');
+  btn.textContent = 'Cargando…';
+  await Tone.start();
+  await buildAudio();
+  document.getElementById('intro').classList.add('out');
+});
+document.getElementById('btn-mute').addEventListener('click', e=>{
+  state.muted = !state.muted;
+  Tone.Destination.mute = state.muted;
+  e.currentTarget.textContent = state.muted ? 'Sonido off' : 'Sonido on';
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
