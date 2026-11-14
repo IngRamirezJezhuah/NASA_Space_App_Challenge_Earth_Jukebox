@@ -34,7 +34,7 @@ MP = {"nose": 0, "ls": 11, "rs": 12, "le": 13, "re": 14, "lw": 15, "rw": 16,
       "lk": 25, "rk": 26, "la": 27, "ra": 28, "lf": 31, "rf": 32}
 
 
-J_HIP = 0
+J_ANCHOR = 2   # ShoulderCenter: la cadera suele estar fuera del cuadro o inventada
 HAND_JOINTS = {i for i, n in enumerate(JOINT_ORDER)
                if n in ("HandLeft", "HandRight", "WristLeft", "WristRight")}
 
@@ -132,7 +132,7 @@ class LinuxKinectSource:
     def _assign_ids(self, bodies):
         """IDs estables por cercanía de cadera (MediaPipe numera por orden de detección,
         así que al cruzarse dos personas intercambiaban id) + suavizado por articulación."""
-        hip = J_HIP
+        hip = J_ANCHOR
         free = dict(self._tracks)
         for b in sorted(bodies, key=lambda b: b["pos"][hip, 2]):
             best, bd = None, 0.7
@@ -210,9 +210,12 @@ class LinuxKinectSource:
                 z = z_body
             # Espacio del SDK: X+ = derecha de la persona (izquierda de la imagen), Y+ arriba, Z+ = frente
             pos[i] = (-(u - COLOR_CX) * z / COLOR_F, -(v - COLOR_CY) * z / COLOR_F, z)
-            if vis >= 0.6 and known:
+            inside = 0 <= u < w and 0 <= v < h
+            if not inside:
+                state[i] = NOT_TRACKED       # MediaPipe inventa puntos fuera del cuadro
+            elif vis >= 0.6 and known:
                 state[i] = TRACKED
-            elif vis >= 0.2:
+            elif vis >= 0.3:
                 state[i] = INFERRED
             else:
                 state[i] = NOT_TRACKED

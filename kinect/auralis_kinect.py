@@ -587,7 +587,9 @@ class OscOut:
 def project(p, f=COLOR_F, c=COLOR_C):
     """Punto 3D (m) → píxel de la imagen de color. Aproximado, solo para dibujar."""
     z = max(float(p[2]), 0.1)
-    return int(c[0] + p[0] * f / z), int(c[1] - p[1] * f / z)
+    # En Linux (kinect_linux.py) X+ es el lado izquierdo de la imagen; el SDK de Windows, el derecho
+    sx = 1.0 if sys.platform.startswith("win") else -1.0
+    return int(c[0] + sx * p[0] * f / z), int(c[1] - p[1] * f / z)
 
 
 def draw_debug(frame, bodies, events_log, fps):
