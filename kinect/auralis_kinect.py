@@ -379,7 +379,7 @@ class Tracker:
     hold     segundos que se mantiene el último valor cuando una mano se pierde
     """
 
-    def __init__(self, source, max_bodies=2, min_cutoff=1.2, beta=6.0, zone=1.0,
+    def __init__(self, source, max_bodies=2, min_cutoff=0.7, beta=4.0, zone=1.0,
                  z_range=(1.0, 3.5), mirror=True, hold=0.4, exit_after=1.0, recorder=None):
         self.source = source
         self.max_bodies = max_bodies

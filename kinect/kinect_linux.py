@@ -34,6 +34,11 @@ MP = {"nose": 0, "ls": 11, "rs": 12, "le": 13, "re": 14, "lw": 15, "rw": 16,
       "lk": 25, "rk": 26, "la": 27, "ra": 28, "lf": 31, "rf": 32}
 
 
+J_HIP = 0
+HAND_JOINTS = {i for i, n in enumerate(JOINT_ORDER)
+               if n in ("HandLeft", "HandRight", "WristLeft", "WristRight")}
+
+
 class LinuxKinectSource:
     def __init__(self, color=True, silhouette=False, seated=False, tilt=None, **_):
         import freenect
@@ -67,6 +72,8 @@ class LinuxKinectSource:
         self._pose = vision.PoseLandmarker.create_from_options(opts)
         self._t0 = time.perf_counter()
         self._last_ms = -1
+        self._tracks = {}      # id estable -> {"pos": (20,3) suavizado, "miss": frames sin verse}
+        self._next_id = 1
 
         if tilt is not None:
             self.set_tilt(tilt)
@@ -108,11 +115,60 @@ class LinuxKinectSource:
                 self.mask = seg if self.mask is None else (self.mask | seg)
 
         bodies = []
-        for idx, lm in enumerate(res.pose_landmarks):
-            body = self._body(lm, depth_mm, idx + 1)
+        for lm in res.pose_landmarks:
+            body = self._body(lm, depth_mm, 0)
             if body is not None:
                 bodies.append(body)
+        self._assign_ids(bodies)
         return {"t": t, "bodies": bodies}
+
+    # Ajustes anti-temblor (más bajo = más suave, más retraso)
+    ALPHA = 0.45        # cuerpo
+    ALPHA_HAND = 0.30   # manos/muñecas
+    DEADBAND = 0.012    # m: movimientos menores se ignoran
+    MAX_JUMP = 0.50     # m por frame: saltos mayores con poca visibilidad se rechazan
+    MAX_MISS = 15       # frames que se recuerda una persona perdida
+
+    def _assign_ids(self, bodies):
+        """IDs estables por cercanía de cadera (MediaPipe numera por orden de detección,
+        así que al cruzarse dos personas intercambiaban id) + suavizado por articulación."""
+        hip = J_HIP
+        free = dict(self._tracks)
+        for b in sorted(bodies, key=lambda b: b["pos"][hip, 2]):
+            best, bd = None, 0.7
+            for tid, tr in free.items():
+                d = np.linalg.norm(tr["pos"][hip] - b["pos"][hip])
+                if d < bd:
+                    best, bd = tid, d
+            if best is None:
+                best = self._next_id
+                self._next_id += 1
+                self._tracks[best] = {"pos": b["pos"].copy(), "miss": 0}
+            else:
+                free.pop(best)
+            tr = self._tracks[best]
+            tr["miss"] = 0
+            b["id"] = best
+            prev, new = tr["pos"], b["pos"]
+            out = prev.copy()
+            for i in range(20):
+                d = np.linalg.norm(new[i] - prev[i])
+                if b["state"][i] == NOT_TRACKED or \
+                        (d > self.MAX_JUMP and b["state"][i] != TRACKED):
+                    continue                      # conserva la posición anterior
+                if d < self.DEADBAND:
+                    continue
+                a = self.ALPHA_HAND if i in HAND_JOINTS else self.ALPHA
+                if b["state"][i] == INFERRED:
+                    a *= 0.5
+                out[i] = prev[i] + a * (new[i] - prev[i])
+            tr["pos"] = out
+            b["pos"] = out.copy()
+        for tid in list(self._tracks):
+            if tid in free:
+                self._tracks[tid]["miss"] += 1
+                if self._tracks[tid]["miss"] > self.MAX_MISS:
+                    del self._tracks[tid]
 
     def _body(self, lm, depth_mm, body_id):
         h, w = depth_mm.shape
