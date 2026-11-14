@@ -207,6 +207,14 @@ class KinectSource:
             self._handles = []
 
 
+def open_kinect(**kw):
+    """Windows -> SDK 1.8 (pythonnet). Linux/macOS -> libfreenect + MediaPipe."""
+    if sys.platform.startswith("win"):
+        return KinectSource(**kw)
+    from kinect_linux import LinuxKinectSource
+    return LinuxKinectSource(**kw)
+
+
 class Recorder:
     """Guarda frames crudos en JSONL para reproducirlos después sin Kinect."""
 
@@ -641,8 +649,8 @@ def main():
     if args.replay:
         source = ReplaySource(args.replay)
     else:
-        source = KinectSource(color=not args.no_color, silhouette=args.silhouette,
-                              seated=args.seated, tilt=args.tilt)
+        source = open_kinect(color=not args.no_color, silhouette=args.silhouette,
+                             seated=args.seated, tilt=args.tilt)
     tracker = Tracker(source, recorder=Recorder(args.record) if args.record else None)
     osc = None
     if args.osc:
