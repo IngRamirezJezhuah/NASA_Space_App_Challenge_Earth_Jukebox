@@ -23,7 +23,7 @@ import time
 import cv2
 import numpy as np
 
-from auralis_kinect import (BONES, DEPTH_C, DEPTH_F, J, KinectSource, Recorder,
+from kinect.auralis_kinect import (BONES, DEPTH_C, DEPTH_F, J, KinectSource, Recorder,
                             ReplaySource, Tracker, draw_debug)
 
 # Colores BGR: (mano izquierda, mano derecha) por jugador
