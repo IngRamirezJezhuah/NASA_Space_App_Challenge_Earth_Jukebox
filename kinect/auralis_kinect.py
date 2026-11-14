@@ -211,7 +211,7 @@ def open_kinect(**kw):
     """Windows -> SDK 1.8 (pythonnet). Linux/macOS -> libfreenect + MediaPipe."""
     if sys.platform.startswith("win"):
         return KinectSource(**kw)
-    from kinect.kinect_linux import LinuxKinectSource
+    from kinect_linux import LinuxKinectSource
     return LinuxKinectSource(**kw)
 
 

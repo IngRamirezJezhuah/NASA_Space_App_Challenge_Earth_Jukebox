@@ -10,7 +10,7 @@
 #  CONFIGURACIÓN MANUAL  (edita aquí)
 # =====================================================================
 # Archivo .py que se abre cuando no se indica ninguno:
-SCRIPT_POR_DEFECTO="auralis_kinect.py"
+SCRIPT_POR_DEFECTO="auralis_visuals.py"
 
 # Script usado por --check:
 SCRIPT_CHECK="kinect_check.py"

@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 *.mp4
+.vscode
+kinect/__pycache__/kinect_linux.cpython-312.pyc
+kinect/__pycache__/auralis_kinect.cpython-312.pyc

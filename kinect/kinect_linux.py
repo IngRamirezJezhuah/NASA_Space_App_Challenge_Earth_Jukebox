@@ -104,7 +104,7 @@ class LinuxKinectSource:
         if self._mask_on:
             self.mask = None
             for m in (res.segmentation_masks or []):
-                seg = (m.numpy_view()[::2, ::2] > 0.5).astype(np.uint8)
+                seg = (np.squeeze(m.numpy_view())[::2, ::2] > 0.5).astype(np.uint8)
                 self.mask = seg if self.mask is None else (self.mask | seg)
 
         bodies = []
