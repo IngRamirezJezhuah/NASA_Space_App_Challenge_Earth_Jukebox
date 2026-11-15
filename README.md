@@ -6,5 +6,5 @@
 
 
 <video autoplay muted controls>
-  <source src="/recursos/Pruebas.mp4" type="video/mp4">
+  <source src="/recursos/Eart_Jukebox.mp4" type="video/mp4">
 </video>   
