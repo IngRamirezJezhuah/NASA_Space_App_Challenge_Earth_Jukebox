@@ -88,11 +88,11 @@ document.head.appendChild(css);
 const root = document.createElement('div');
 root.id = 'vi';
 root.innerHTML = `
-  <div class="h t"></div><div class="h b"></div>
-  <div class="line"></div><div class="ring"></div>
-  <div class="ttl"><h1>VISORA</h1><div class="sub">AEROSOL OPTICAL DEPTH // NASA</div></div>
-  <div class="info"><div class="log"></div><div class="bar"><i></i></div></div>
-  <div class="skip">[ CLIC PARA ENTRAR ]</div>`;
+    <div class="h t"></div><div class="h b"></div>
+    <div class="line"></div><div class="ring"></div>
+    <div class="ttl"><h1>VISORA</h1><div class="sub">AEROSOL OPTICAL DEPTH // NASA</div></div>
+    <div class="info"><div class="log"></div><div class="bar"><i></i></div></div>
+    <div class="skip">[ CLIC PARA ENTRAR ]</div>`;
 const crt = document.createElement('div');
 crt.id = 'vi-crt';
 document.body.append(root, crt);
