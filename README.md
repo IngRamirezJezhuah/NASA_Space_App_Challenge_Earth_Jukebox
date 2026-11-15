@@ -5,7 +5,6 @@
 ![Imagen del evento](recursos/AURALIS.jpeg)
 
 
-<video autoplay controls width="640">
+<video autoplay muted controls>
   <source src="/recursos/Pruebas.mp4" type="video/mp4">
-  Tu navegador no soporta la etiqueta de video.
-</video>
+</video>   
