@@ -48,9 +48,9 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         .vk-hud{position:fixed;left:12px;bottom:12px;z-index:10;font:12px 'Courier New',monospace;color:#0ff;
             background:#020816cc;border:1px solid #0ff6;padding:4px 10px;letter-spacing:1px;
             clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}
-        .vk-prev{position:fixed;left:12px;bottom:46px;width:320px;border:1px solid #0ff8;z-index:10;display:none;
-            box-shadow:0 0 14px #0ff4;background:#000}
-        .vk-prev img{display:block;width:100%}
+        .vk-prev{position:fixed;left:12px;top:54px;width:256px;height:192px;border:1px solid #0ff8;z-index:8;
+            display:none;box-shadow:0 0 14px #0ff4;background:#000;overflow:hidden}
+        .vk-prev img{display:block;width:100%;height:100%;object-fit:cover}
         .vk-tab{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:21;cursor:pointer;
             background:#020816dd;color:#0ff;border:1px solid #0ff8;border-right:0;padding:14px 8px;
             font:bold 12px 'Courier New',monospace;writing-mode:vertical-rl;letter-spacing:3px;
@@ -279,12 +279,15 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
 
     // ---------- dibujo de manos / cuadro ----------
     // Minimapa del campo visible del Kinect: borde = lo que ve, recuadro punteado = región segura
+    // Se reserva siempre este espacio (arriba a la izquierda); con la vista previa activa, va debajo
+    const MAP_RECT = { x: 12, y: 54, w: 256, h: 192 };
     function drawMinimap(msg) {
-        const w = 132, h = 99, x = innerWidth - w - 12, y = innerHeight - h - 12, m = P.margin;
+        const { x, y, w, h } = MAP_RECT, m = P.margin;
         g.save();
-        g.fillStyle = '#020816cc'; g.fillRect(x, y, w, h);
-        g.strokeStyle = '#00eaff88'; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w - 1, h - 1);
-        g.setLineDash([4, 3]); g.strokeStyle = '#ff8a1e';
+        g.fillStyle = P.preview ? '#02081622' : '#020816cc';
+        g.fillRect(x, y, w, h);
+        g.strokeStyle = '#00eaffaa'; g.lineWidth = 1.5; g.strokeRect(x + .5, y + .5, w - 1, h - 1);
+        g.setLineDash([6, 4]); g.strokeStyle = '#ff8a1e'; g.lineWidth = 2;
         g.strokeRect(x + m * w, y + m * h, w * (1 - 2 * m), h * (1 - 2 * m));
         g.setLineDash([]);
         for (const b of msg.bodies) {
@@ -292,11 +295,13 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
                 const hd = b.hands[k];
                 if (!hd || !(hd.vis || hd.out)) continue;
                 g.fillStyle = hd.out ? '#ff3030' : COLORS[(b.id - 1) % COLORS.length];
-                g.beginPath(); g.arc(x + hd.sx * w, y + hd.sy * h, 4, 0, Math.PI * 2); g.fill();
+                g.beginPath(); g.arc(x + hd.sx * w, y + hd.sy * h, 6, 0, Math.PI * 2); g.fill();
+                g.strokeStyle = '#fff'; g.lineWidth = 1; g.stroke();
             }
         }
-        g.fillStyle = '#00eaffaa'; g.font = '9px monospace';
-        g.fillText('ZONA KINECT', x + 4, y + 10);
+        g.fillStyle = '#00eaffcc'; g.font = '11px monospace';
+        g.fillText('ZONA KINECT', x + 6, y + 14);
+        if (!msg.bodies.length) g.fillText('sin cuerpo', x + 6, y + h - 8);
         g.restore();
     }
 

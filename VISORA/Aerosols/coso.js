@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import './intro.js';
 import { createStars } from './stars.js';
+import { createCrosshair } from './crosshair.js';
 
 const scene = new THREE.Scene();
 
@@ -61,6 +62,7 @@ const pivot = new THREE.Group();   // el globo gira sobre este grupo (sin límit
 pivot.add(globe, overlay);
 scene.add(pivot);
 const updateStars = createStars(scene);   // fondo de estrellas con paralaje
+const updateCrosshair = createCrosshair({ camera, globe, getMap: () => baseMat.map });   // mira central + color
 
 preload(0);
 let index = 0;
@@ -162,6 +164,7 @@ renderer.setAnimationLoop((now) => {
     }
     controls.update();
     updateStars(now, camera, pivot);
+    updateCrosshair(now);
     renderer.render(scene, camera);
 });
 
