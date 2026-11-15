@@ -107,8 +107,8 @@ controls.dampingFactor = 0.08;
 controls.enablePan = false;
 controls.minDistance = 1.5;
 controls.maxDistance = 6;
-controls.rotateSpeed = 0.25;
-controls.zoomSpeed = 0.5;
+controls.rotateSpeed = 0.10;
+controls.zoomSpeed = 0.2;
 
 addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
@@ -134,5 +134,5 @@ renderer.setAnimationLoop((now) => {
 
 // Control con Kinect: se activa abriendo la página con ?kinect (kinect/body_tracker.sh)
 if (new URLSearchParams(location.search).has('kinect')) {
-    import('./kinect_bridge.js').then((m) => m.initKinect({ camera, controls }));
+    import('./kinect_bridge.js').then((m) => m.initKinect({ scene, camera, controls, renderer }));
 }

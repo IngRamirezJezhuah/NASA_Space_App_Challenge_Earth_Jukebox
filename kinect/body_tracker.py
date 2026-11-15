@@ -130,7 +130,7 @@ class Track:
         self.last = {"L": None, "R": None}      # (valores, t) de la última mano buena
         self.dhist = deque(maxlen=16)           # (t, distancia entre muñecas)
         self.clap_seq = 0
-        self.last_clap = 0.0
+        self.last_clap = -10.0
         self.armed_until = 0.0
         self.prev_d = None
         self.frame = None                       # rect suavizado [x0,y0,x1,y1]
