@@ -1,12 +1,14 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+import './intro.js';
+import { createStars } from './stars.js';
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 300);
 camera.position.set(0, 0, 3.2);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -55,7 +57,10 @@ const globe = new THREE.Mesh(geometry, baseMat);
 const overlay = new THREE.Mesh(geometry, topMat);
 overlay.scale.setScalar(1.0005);
 overlay.visible = false;
-scene.add(globe, overlay);
+const pivot = new THREE.Group();   // el globo gira sobre este grupo (sin límite en los polos)
+pivot.add(globe, overlay);
+scene.add(pivot);
+const updateStars = createStars(scene);   // fondo de estrellas con paralaje
 
 preload(0);
 let index = 0;
@@ -100,15 +105,42 @@ document.body.appendChild(ui);
 btnPause.onclick = () => { playing = false; };
 btnPlay.onclick = () => { playing = true; };
 
-// Controles tipo model-viewer: arrastrar para rotar, rueda/pellizco para zoom
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.enablePan = false;
+// Controles sin tope en los polos: giro libre de 360° en todos los ejes
+const controls = new TrackballControls(camera, renderer.domElement);
+controls.noPan = true;
+controls.rotateSpeed = 1.2;
+controls.zoomSpeed = 0.6;
+controls.staticMoving = false;
+controls.dynamicDampingFactor = 0.12;
 controls.minDistance = 1.5;
 controls.maxDistance = 6;
-controls.rotateSpeed = 0.10;
-controls.zoomSpeed = 0.2;
+
+// Fondo de imagen (se muestra detrás del globo)
+const bgOptions = [
+    ['Sin fondo', ''],
+    ['Imagen: Untitled.jpeg', 'Untitled.jpeg'],
+    ['Imagen: AURAS frame 0000', images[0]],
+];
+const bgSelect = document.createElement('select');
+for (const [name, url] of bgOptions) bgSelect.add(new Option(name, url));
+const bgFile = document.createElement('input');
+bgFile.type = 'file';
+bgFile.accept = 'image/*';
+const bgBox = document.createElement('div');
+bgBox.style.cssText = 'position:fixed;top:12px;left:12px;display:flex;gap:8px;align-items:center;color:#fff;font:13px sans-serif;z-index:10';
+bgBox.append('Fondo:', bgSelect, bgFile);
+document.body.appendChild(bgBox);
+
+function setBackground(url) {
+    document.body.style.background = url
+        ? `#000 url("${url}") center / cover no-repeat`
+        : '#000';
+}
+bgSelect.onchange = () => setBackground(bgSelect.value);
+bgFile.onchange = () => {
+    const f = bgFile.files[0];
+    if (f) setBackground(URL.createObjectURL(f));
+};
 
 addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
@@ -129,10 +161,11 @@ renderer.setAnimationLoop((now) => {
         }
     }
     controls.update();
+    updateStars(now, camera, pivot);
     renderer.render(scene, camera);
 });
 
 // Control con Kinect: se activa abriendo la página con ?kinect (kinect/body_tracker.sh)
 if (new URLSearchParams(location.search).has('kinect')) {
-    import('./kinect_bridge.js').then((m) => m.initKinect({ scene, camera, controls, renderer }));
+    import('./kinect_bridge.js').then((m) => m.initKinect({ scene, camera, controls, renderer, pivot }));
 }
