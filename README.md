@@ -4,7 +4,5 @@
 
 ![Imagen del evento](recursos/AURALIS.jpeg)
 
+![Imagen del evento](recursos/Aura.jpeg)
 
-<video autoplay muted controls>
-  <source src="/recursos/Eart_Jukebox.mp4" type="video/mp4">
-</video>   
