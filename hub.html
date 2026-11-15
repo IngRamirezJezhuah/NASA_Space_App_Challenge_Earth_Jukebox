@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Earth Jukebox - Main Hub</title>
+    <style>
+        :root {
+            --bg-color: #030305;
+            --accent-color: #ffffff;
+            --muted-color: #444455;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at 50% 50%, #11111a 0%, #000000 100%);
+            color: var(--accent-color);
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Estilos del Menú Principal */
+        #menu-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 10;
+            transition: opacity 0.5s ease;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            letter-spacing: 0.5em;
+            font-weight: 300;
+            text-transform: uppercase;
+            margin-bottom: 4rem;
+            text-shadow: 0 0 20px rgba(255,255,255,0.2);
+        }
+
+        .cards-container {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        .card {
+            /* Hacemos los recuadros más grandes */
+            width: 320px; 
+            height: 450px;
+            border: 1px solid var(--muted-color);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            text-align: center;
+            padding: 2rem;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden; /* Para que la imagen de fondo no se salga al hacer zoom */
+        }
+
+        /* Pseudo-elemento para manejar la imagen de fondo de forma independiente al texto */
+        .card::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: var(--bg-image);
+            background-size: cover;
+            background-position: center;
+            /* Inicia oscura y en blanco y negro */
+            filter: grayscale(100%) brightness(0.25);
+            transition: all 0.5s ease;
+            z-index: 1;
+        }
+
+        /* Contenido por encima de la imagen */
+        .card h2, .card p {
+            position: relative;
+            z-index: 2;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.9); /* Sombra para que el texto resalte sobre la foto */
+        }
+
+        .card h2 {
+            font-size: 1.5rem;
+            letter-spacing: 0.2em;
+            margin: 0 0 1rem 0;
+            font-weight: 500;
+        }
+
+        .card p {
+            font-size: 0.9rem;
+            color: #ccc;
+            letter-spacing: 0.1em;
+            line-height: 1.5;
+        }
+
+        /* Estado "Hover" (ratón) o "Activo" (escáner del Kinect) */
+        .card:hover, .card.active {
+            border-color: var(--accent-color);
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(255, 255, 255, 0.2);
+        }
+
+        /* Transición de la imagen de fondo al resaltar */
+        .card:hover::before, .card.active::before {
+            filter: grayscale(0%) brightness(0.75); /* Recupera color y brillo */
+            transform: scale(1.05); /* Efecto sutil de acercamiento */
+        }
+
+        #kinect-status {
+            margin-top: 4rem;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        /* Estilos del contenedor de la página cargada (Iframe) */
+        #content-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.8s ease;
+        }
+
+        #content-screen.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        #btn-back {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: transparent;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 10px 20px;
+            font-family: inherit;
+            letter-spacing: 0.1em;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 30;
+        }
+
+        #btn-back:hover {
+            border-color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- PANTALLA 1: MENÚ -->
+    <div id="menu-screen">
+        <h1>Earth Jukebox</h1>
+        <div class="cards-container">
+            <!-- Nota: Reemplaza las URL dentro de var(--bg-image) por las rutas locales de tus imágenes de la NASA -->
+            <div class="card" data-index="0" style="--bg-image: url('https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?q=80&w=800');">
+                <h2>VISORA</h2>
+                <p>Aerosols Visualizer<br>Kinect Ready</p>
+            </div>
+            <div class="card" data-index="1" style="--bg-image: url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800');">
+                <h2>DATA</h2>
+                <p>Sonification Module<br>Interactive Audio</p>
+            </div>
+            <div class="card" data-index="2" style="--bg-image: url('https://images.unsplash.com/photo-1462331940025-496dfbfc7564?q=80&w=800');">
+                <h2>SONORA</h2>
+                <p>Immersive Soundscape<br>Experience</p>
+            </div>
+        </div>
+        <div id="kinect-status">ESPERANDO KINECT... | APLAUDE PARA SELECCIONAR</div>
+    </div>
+
+    <!-- PANTALLA 2: CONTENIDO -->
+    <div id="content-screen">
+        <button id="btn-back">VOLVER AL MENÚ (O DOBLE APLAUSO)</button>
+        <iframe id="viewer" src=""></iframe>
+    </div>
+
+    <script>
+        const pages = [
+            "VISORA/Aerosols/Visora_2.html?kinect",
+            "VISORA/Data_sollifications/index.html",
+            "SONORA/sonora.html"
+        ];
+
+        // Elementos UI
+        const menuScreen = document.getElementById('menu-screen');
+        const contentScreen = document.getElementById('content-screen');
+        const viewer = document.getElementById('viewer');
+        const cards = document.querySelectorAll('.card');
+        const statusText = document.getElementById('kinect-status');
+        const btnBack = document.getElementById('btn-back');
+
+        // Estado del menú
+        let currentIndex = 0;
+        let inMenu = true;
+        let scanInterval;
+
+        // Iniciar el escáner visual del menú (rota la selección cada 1.5 segundos)
+        function startScanner() {
+            if (scanInterval) clearInterval(scanInterval);
+            updateCards();
+            scanInterval = setInterval(() => {
+                if (inMenu) {
+                    currentIndex = (currentIndex + 1) % cards.length;
+                    updateCards();
+                }
+            }, 1500);
+        }
+
+        function stopScanner() {
+            clearInterval(scanInterval);
+            cards.forEach(c => c.classList.remove('active'));
+        }
+
+        function updateCards() {
+            cards.forEach((card, index) => {
+                if (index === currentIndex) {
+                    card.classList.add('active');
+                } else {
+                    card.classList.remove('active');
+                }
+            });
+        }
+
+        // Navegación
+        function openPage(index) {
+            inMenu = false;
+            stopScanner();
+            viewer.src = pages[index];
+            menuScreen.style.opacity = '0';
+            menuScreen.style.pointerEvents = 'none';
+            contentScreen.classList.add('visible');
+        }
+
+        function returnToMenu() {
+            inMenu = true;
+            viewer.src = ""; // Limpia la memoria del iframe
+            contentScreen.classList.remove('visible');
+            menuScreen.style.opacity = '1';
+            menuScreen.style.pointerEvents = 'auto';
+            startScanner();
+        }
+
+        // Interacción con Mouse (como respaldo)
+        cards.forEach((card, index) => {
+            card.addEventListener('click', () => openPage(index));
+            card.addEventListener('mouseenter', () => {
+                currentIndex = index;
+                updateCards();
+            });
+        });
+        btnBack.addEventListener('click', returnToMenu);
+
+        // Lógica del Kinect
+        const AURALIS = 'http://127.0.0.1:8765';
+        const claps = new Map();
+        let lastClapTime = 0;
+
+        const es = new EventSource(AURALIS + '/events');
+        
+        es.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            const bodyCount = msg.bodies.length;
+            
+            if (inMenu) {
+                statusText.innerText = `KINECT ACTIVO | ${bodyCount} CUERPO(S) | APLAUDE CUANDO SE ILUMINE TU OPCIÓN`;
+            }
+            
+            for (const b of msg.bodies) {
+                const prevClap = claps.get(b.id) || 0;
+                
+                if (b.clap > prevClap) {
+                    const now = performance.now();
+                    const timeSinceLastClap = now - lastClapTime;
+
+                    if (inMenu && timeSinceLastClap > 1000) {
+                        // 1 aplauso en el menú: abre la opción resaltada
+                        lastClapTime = now;
+                        openPage(currentIndex);
+                    } else if (!inMenu && timeSinceLastClap < 800) {
+                        // 2 aplausos rápidos (doble aplauso) dentro de la experiencia: vuelve al menú
+                        lastClapTime = 0; // reset
+                        returnToMenu();
+                    } else {
+                        lastClapTime = now;
+                    }
+                }
+                claps.set(b.id, b.clap);
+            }
+        };
+
+        es.onerror = () => { 
+            statusText.innerText = 'SIN CONEXIÓN KINECT | SELECCIONA CON EL RATÓN'; 
+        };
+
+        // Iniciar el ciclo del menú
+        startScanner();
+    </script>
+</body>
+</html>

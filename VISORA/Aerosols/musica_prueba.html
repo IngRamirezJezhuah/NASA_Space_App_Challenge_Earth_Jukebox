@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Prueba de música · Visora</title>
+<style>
+  body{margin:0;background:#0b0c0d;color:#e8e8e2;font:14px/1.6 system-ui,sans-serif;padding:24px}
+  h1{font-size:19px;font-weight:500;margin:0 0 4px}
+  .sub{color:#7d7d77;font-size:12px;margin-bottom:18px}
+  .card{background:#141618;border:1px solid #26292c;border-radius:6px;padding:16px;margin-bottom:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  button{font:13px system-ui;color:#fff;background:#1d2023;border:1px solid #363a3e;border-radius:5px;
+         padding:10px 16px;cursor:pointer}
+  button:hover{border-color:#fff}
+  button.on{background:#fff;color:#111;border-color:#fff}
+  .meter{height:16px;background:#0b0c0d;border:1px solid #26292c;border-radius:3px;overflow:hidden}
+  .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#4caf50,#ffd54f 75%,#ff5252);transition:width .06s}
+  .big{font-size:16px;font-weight:600}
+  .ok{color:#6fdc7a} .bad{color:#ff6b6b} .warn{color:#ffc14d} .mut{color:#7d7d77}
+  label{display:flex;align-items:center;gap:10px;color:#7d7d77;font-size:12px;margin-top:10px}
+  input[type=range]{flex:1;accent-color:#fff}
+</style>
+</head>
+<body>
+<h1>Prueba de música</h1>
+<div class="sub">Ábrela desde el servidor, igual que Visora: <code>http://localhost:8000/musica_prueba.html</code></div>
+
+<div class="card"><div id="estado" class="big warn">Cargando…</div><div id="pista" class="mut"></div></div>
+
+<div class="card">
+  <div class="mut" style="margin-bottom:10px">Toca cada gas</div>
+  <div class="row" id="botones"></div>
+  <label>Intensidad <input type="range" id="k" min="0" max="100" value="85"><span id="kv">85%</span></label>
+</div>
+
+<div class="card">
+  <div class="mut" style="margin-bottom:8px">¿Está saliendo sonido? <span id="nivel" class="mut"></span></div>
+  <div class="meter"><i id="barra"></i></div>
+  <div class="mut" style="margin-top:10px;font-size:12px">
+    Si la barra se mueve pero no oyes nada, el problema es la salida de audio de Windows
+    (bocina equivocada o volumen de Chrome en cero), no el código.
+  </div>
+</div>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+let music = null, gas = -1;
+
+const GASES = [
+  { id:1, name:'Black Carbon' }, { id:2, name:'Dust' },
+  { id:3, name:'Sea Salt' },     { id:4, name:'Sulfate' },
+  { id:0, name:'Aire limpio' }
+];
+
+try {
+  const mod = await import('./musica.js');
+  music = mod.createMusic();
+  $('estado').textContent = 'musica.js cargó bien · pulsa un gas';
+  $('estado').className = 'big ok';
+  $('pista').textContent = 'El navegador no deja sonar nada hasta el primer clic, por eso hay que pulsar un botón.';
+} catch (e) {
+  $('estado').textContent = 'No se pudo cargar musica.js';
+  $('estado').className = 'big bad';
+  $('pista').textContent = e.message + ' — ¿está musica.js en la misma carpeta que esta página?';
+}
+
+GASES.forEach(g => {
+  const b = document.createElement('button');
+  b.textContent = g.name;
+  b.onclick = () => {
+    if (!music) return;
+    gas = g.id;
+    music.start();
+    music.set({ gas:g.id, intensity:+$('k').value/100, lon:0, lat:0 });
+    [...$('botones').children].forEach(x => x.classList.toggle('on', x === b));
+  };
+  $('botones').appendChild(b);
+});
+const stop = document.createElement('button');
+stop.textContent = '■ Silencio';
+stop.onclick = () => { if (music) music.stop(); gas = -1; [...$('botones').children].forEach(x => x.classList.remove('on')); };
+$('botones').appendChild(stop);
+
+$('k').oninput = () => {
+  $('kv').textContent = $('k').value + '%';
+  if (music && gas >= 0) music.set({ gas, intensity:+$('k').value/100, lon:0, lat:0 });
+};
+
+// medidor: se engancha a la salida real para ver si se genera sonido
+let an = null;
+const AC = window.AudioContext;
+window.AudioContext = function(...a){
+  const c = new AC(...a);
+  if (!an) {
+    an = c.createAnalyser(); an.fftSize = 1024;
+    const orig = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function(d, ...r){
+      if (d === c.destination) { try { orig.call(this, an); } catch {} }
+      return orig.call(this, d, ...r);
+    };
+  }
+  return c;
+};
+window.AudioContext.prototype = AC.prototype;
+
+const buf = new Float32Array(1024);
+let pico = 0;
+setInterval(() => {
+  if (!an) { $('nivel').textContent = ''; return; }
+  an.getFloatTimeDomainData(buf);
+  let m = 0;
+  for (const v of buf) { const x = Math.abs(v); if (x > m) m = x; }
+  pico = Math.max(m, pico * 0.88);
+  $('barra').style.width = Math.min(100, pico * 160) + '%';
+  const run = music && music.running;
+  $('nivel').textContent = !run ? '— audio apagado' : pico > 0.004 ? '✔ sí, se está generando sonido' : '✖ no sale nada';
+  $('nivel').className = !run ? 'mut' : pico > 0.004 ? 'ok' : 'bad';
+  if (music && music.blocked) { $('estado').textContent = 'Chrome bloqueó el audio · vuelve a pulsar un gas'; $('estado').className = 'big warn'; }
+}, 100);
+</script>
+</body>
+</html>
