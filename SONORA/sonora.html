@@ -1,11 +1,488 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SONORA · Earth Jukebox</title>
+<!--
+  SONORA — barredor corporal entre dos imágenes de la misma zona en fechas distintas.
+  · El CUERPO (torso, vía kinect/auralis_visuals.py) mueve la línea divisoria.
+    Persona a la derecha → la imagen izquierda (vegetación) ocupa más pantalla.
+  · Más imagen izquierda = más vida: música + naturaleza. Toda la derecha = silencio.
+  · Sonidos de naturaleza:
+      "Birds Loop" de vdr3 — Freesound #393699 — CC0 (dominio público)
+      "Wind Rustling Trees" de FunWithSound — Freesound #381381 — CC BY 4.0
+      (+ agua y cantos de aves sintetizados aquí mismo, y loops propios en recursos/sonidos)
+  Teclas: ← → par de imágenes · M invertir izquierda/derecha del Kinect · C cámara
+          F pantalla completa · I datos y créditos · aplauso = siguiente par
+  Abrir con doble clic mientras corre kinect/auralis_visuals.py (sin él funciona con el mouse).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<style>
+  :root{ --fg:#ecece6; --mut:#8a8a84; --veg:#9be37a; --dry:#e3b27a; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#000;color:var(--fg);font-family:'Inter',system-ui,sans-serif}
+
+  /* ---------- las dos imágenes, alineadas, a pantalla completa ---------- */
+  #stage{position:fixed;inset:0;cursor:ew-resize;touch-action:none}
+  .pair{position:absolute;inset:0;transition:opacity .9s}
+  .pair.hidden{opacity:0;pointer-events:none}
+  .pair img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;user-select:none;-webkit-user-drag:none}
+  .pair img.right{clip-path:inset(0 0 0 var(--split,50%))}
+  /* la imagen derecha (sin vegetación) se apaga un poco: menos vida */
+  .pair img.right{filter:saturate(.85) brightness(.92)}
+
+  /* ---------- línea divisoria ---------- */
+  #divider{position:fixed;top:0;bottom:0;left:var(--split,50%);width:0;pointer-events:none;z-index:5}
+  #divider::before{content:'';position:absolute;top:0;bottom:0;left:-1px;width:2px;background:rgba(255,255,255,.85);box-shadow:0 0 18px rgba(255,255,255,.55)}
+  #knob{position:absolute;top:50%;left:0;transform:translate(-50%,-50%);width:46px;height:46px;border-radius:50%;
+        border:2px solid rgba(255,255,255,.9);background:rgba(0,0,0,.35);backdrop-filter:blur(4px);
+        display:flex;align-items:center;justify-content:center;font:500 11px 'JetBrains Mono',monospace;color:#fff}
+  #pct{position:absolute;top:calc(50% + 34px);left:0;transform:translateX(-50%);font:500 10px 'JetBrains Mono',monospace;
+       letter-spacing:.14em;white-space:nowrap;color:#fff;text-shadow:0 1px 4px #000}
+
+  /* ---------- etiquetas mínimas ---------- */
+  .tag{position:fixed;top:16px;z-index:6;font:400 10px 'JetBrains Mono',monospace;letter-spacing:.16em;text-transform:uppercase;
+       text-shadow:0 1px 4px rgba(0,0,0,.95);pointer-events:none}
+  .tag b{display:block;font-weight:500;font-size:12px;margin-bottom:3px}
+  #tagL{left:20px;color:var(--veg)} #tagR{right:20px;text-align:right;color:var(--dry)}
+  #title{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;font:400 10px 'JetBrains Mono',monospace;
+         letter-spacing:.2em;text-transform:uppercase;color:rgba(236,236,230,.6);text-shadow:0 1px 4px #000;pointer-events:none}
+  #hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;font:400 13px 'JetBrains Mono',monospace;
+        letter-spacing:.16em;text-transform:uppercase;color:#fff;text-shadow:0 1px 6px #000;pointer-events:none;
+        transition:opacity .6s;opacity:0}
+  #hint.on{opacity:.85}
+
+  #btn-mute{position:fixed;right:14px;bottom:12px;z-index:20;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase;
+            color:rgba(236,236,230,.7);background:rgba(0,0,0,.35);border:1px solid rgba(236,236,230,.2);padding:6px 10px;cursor:pointer}
+
+  /* ---------- datos / créditos (tecla I) ---------- */
+  #info{position:fixed;left:14px;bottom:12px;z-index:20;display:none;max-width:560px;padding:10px 12px;background:rgba(0,0,0,.65);
+        font:400 10px/1.7 'JetBrains Mono',monospace;letter-spacing:.06em;color:var(--mut)}
+  #info b{color:var(--fg);font-weight:500}
+  body.info #info{display:block}
+
+  /* ---------- cámara del Kinect (tecla C) ---------- */
+  #cam{position:fixed;right:14px;top:60px;z-index:20;width:220px;background:rgba(10,10,10,.8);border:1px solid rgba(236,236,230,.15);
+       font:500 9px 'JetBrains Mono',monospace;letter-spacing:.1em;color:var(--mut);display:none}
+  #cam.on{display:block}
+  #cam .v{position:relative;aspect-ratio:4/3;background:#000}
+  #cam img,#cam canvas{position:absolute;inset:0;width:100%;height:100%}
+  #cam .t{padding:5px 7px;text-transform:uppercase}
+
+  /* ---------- portada ---------- */
+  #intro{position:fixed;inset:0;z-index:50;background:#050505;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:24px;transition:opacity .7s}
+  #intro.out{opacity:0;pointer-events:none}
+  #intro h1{font-weight:300;font-size:clamp(36px,6vw,66px);letter-spacing:.12em}
+  #intro p{font-size:12px;color:var(--mut);letter-spacing:.16em;text-transform:uppercase}
+  #intro p.soft{letter-spacing:.04em;text-transform:none;max-width:500px;line-height:1.75;font-size:13px}
+  #intro button{font:500 12px 'JetBrains Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--fg);background:none;border:1px solid #3a3a36;padding:14px 28px;cursor:pointer}
+  #intro button:hover{border-color:var(--veg);color:var(--veg)}
+  #intro small{position:absolute;bottom:14px;font:400 9px 'JetBrains Mono',monospace;color:#55554f;letter-spacing:.06em}
+  #lock{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:40;padding:9px 14px;background:#141412;border:1px solid var(--veg);
+        color:var(--veg);font:500 10px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase}
+  #lock[hidden]{display:none}
+</style>
 </head>
 <body>
-    <p>soy Sonora</p>
+
+<div id="intro">
+  <p>NASA Space Apps Challenge · 2026 · Earth Jukebox</p>
+  <h1>SONORA</h1>
+  <p class="soft">Camina de un lado a otro. Tu cuerpo desliza la frontera entre dos fechas del mismo lugar: donde hay vegetación hay vida y música; donde se pierde, el sonido se apaga hasta el silencio.</p>
+  <button id="btn-start">Entrar</button>
+  <p id="intro-k">o párate frente al Kinect</p>
+  <small>Sonidos: “Birds Loop” · vdr3 (CC0) · “Wind Rustling Trees” · FunWithSound (CC BY 4.0) · freesound.org</small>
+</div>
+
+<div id="stage"></div>
+<div id="divider"><div id="knob">◀▶</div><div id="pct">—</div></div>
+<div id="tagL" class="tag"><b>—</b>con vegetación</div>
+<div id="tagR" class="tag"><b>—</b>después</div>
+<div id="title">—</div>
+<div id="hint">camina de un lado a otro</div>
+<button id="btn-mute">Sonido on</button>
+<div id="lock" hidden>El navegador bloqueó el sonido · haz clic o pulsa una tecla</div>
+
+<div id="info">
+  <div><b>SONORA</b> · vida <span id="i-amt">—</span> · cuerpo <span id="i-body">—</span> · Kinect <span id="i-k">—</span> · voces <span id="i-v">—</span></div>
+  <div>Loops: <span id="i-loops">—</span></div>
+  <div>Sonidos: “Birds Loop” por vdr3 (Freesound #393699, CC0) · “Wind Rustling Trees” por FunWithSound (Freesound #381381, CC BY 4.0) · agua y aves sintetizadas · audio extra: recursos/sonidos</div>
+  <div>Teclas: ← → par · M invertir Kinect · C cámara · F pantalla completa · I esto</div>
+</div>
+
+<div id="cam"><div class="v"><img alt=""><canvas></canvas></div><div class="t">—</div></div>
+
+<script>
+/* ============================================================
+   CONFIGURACIÓN
+   ============================================================ */
+const BRIDGE = 'http://127.0.0.1:8765';          // kinect/auralis_visuals.py
+const LOCAL  = '../recursos/compare/';            // respaldo si el programa no corre
+const params = new URLSearchParams(location.search);
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp = (a,b,t)=>a+(b-a)*t;
+const $ = id => document.getElementById(id);
+
+/* Pares conocidos (si el programa corre, se leen de recursos/compare automáticamente) */
+let PAIRS = [
+  { folder:'1', files:['jerseyshorepa_oli_20261009.jpg','jerseyshorepa_oli_20261025.jpg'] },
+  { folder:'2', files:['northerncanada_oli2_20260727.jpg','northerncanada_oli2_20260906.jpg'] }
+];
+
+/* Sonidos de naturaleza (Freesound, enlaces públicos de previsualización) */
+const NATURE = [
+  { key:'birds', name:'Birds Loop · vdr3 (CC0)',
+    urls:['https://cdn.freesound.org/previews/393/393699_4994127-hq.mp3','https://cdn.freesound.org/previews/393/393699_4994127-lq.mp3'],
+    curve:a => .75*Math.pow(a, 1.4) },
+  { key:'wind', name:'Wind Rustling Trees · FunWithSound (CC BY 4.0)',
+    urls:['https://cdn.freesound.org/previews/381/381381_6456158-hq.mp3','https://cdn.freesound.org/previews/381/381381_6456158-lq.mp3'],
+    curve:a => .45*Math.pow(a, .9) }
+];
+
+/* ---------- nombres y fechas a partir del archivo (…_AAAAMMDD.jpg) ---------- */
+const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fileDate(f){ const m = f.match(/(\d{4})(\d{2})(\d{2})/); return m ? `${+m[3]} ${MESES[+m[2]-1]} ${m[1]}` : f; }
+function placeName(f){
+  const base = f.split('_')[0];
+  const known = { jerseyshorepa:'Jersey Shore, Pensilvania', northerncanada:'Norte de Canadá' };
+  return known[base] || base.replace(/([a-z])([A-Z])/g,'$1 $2');
+}
+
+/* ============================================================
+   IMÁGENES
+   ============================================================ */
+const stage = $('stage');
+let pairEls = [], cur = 0;
+function buildPairs(){
+  stage.innerHTML = ''; pairEls = [];
+  PAIRS.forEach((P,i)=>{
+    const d = document.createElement('div'); d.className = 'pair hidden';
+    P.files.forEach((f,k)=>{
+      const img = document.createElement('img');
+      img.className = k ? 'right' : 'left'; img.alt = '';
+      // 1) relativa al proyecto (doble clic)  2) servida por auralis_visuals.py
+      const srcs = [LOCAL + P.folder + '/' + f, BRIDGE + '/compare/' + encodeURIComponent(P.folder) + '/' + encodeURIComponent(f)];
+      let j = 0; img.onerror = ()=>{ if(++j < srcs.length) img.src = srcs[j]; };
+      img.src = srcs[0];
+      d.appendChild(img);
+    });
+    stage.appendChild(d); pairEls.push(d);
+  });
+  showPair(Math.min(cur, PAIRS.length-1));
+}
+function showPair(i){
+  cur = (i + PAIRS.length) % PAIRS.length;
+  pairEls.forEach((d,k)=>d.classList.toggle('hidden', k !== cur));
+  const P = PAIRS[cur];
+  $('tagL').innerHTML = `<b>${fileDate(P.files[0])}</b>con vegetación`;
+  $('tagR').innerHTML = `<b>${fileDate(P.files[1])}</b>después`;
+  $('title').textContent = `${placeName(P.files[0])} · ${cur+1} / ${PAIRS.length}`;
+}
+buildPairs();
+// si el programa corre, leer los pares reales de recursos/compare
+fetch(BRIDGE + '/compare.json').then(r=>r.json()).then(list=>{
+  if(Array.isArray(list) && list.length){ PAIRS = list; buildPairs(); }
+}).catch(()=>{});
+
+/* ============================================================
+   CUERPO (Kinect) Y MOUSE → posición de la línea
+   ============================================================ */
+const K = { status:'conectando', body:null, cx:null, lastMsg:0, mirror:false, margin:.15, raw:null, bodies:0 };
+try{ K.mirror = params.has('mirror') ? true : localStorage.getItem('sonora-mirror') === '1'; }catch(e){}
+K.margin = clamp(parseFloat(params.get('margin')) || .15, 0, .4);
+let lockedId = null, lockedSeen = 0, claps = new Map(), onClap = null;
+(function connect(){
+  if(params.has('mouse') || typeof EventSource === 'undefined'){ K.status = 'off'; return; }
+  const es = new EventSource(params.get('events') || BRIDGE + '/events');
+  es.onmessage = e=>{
+    let msg; try{ msg = JSON.parse(e.data); }catch(err){ return; }
+    const now = performance.now(); K.lastMsg = now; K.status = 'on';
+    const bodies = msg.bodies || []; K.bodies = bodies.length;
+    if(lockedId !== null && bodies.some(b=>b.id === lockedId)) lockedSeen = now;
+    else if(lockedId === null || now - lockedSeen > 900){ lockedId = msg.primary ?? (bodies[0] ? bodies[0].id : null); lockedSeen = now; }
+    const b = bodies.find(x=>x.id === lockedId);
+    for(const x of bodies){ if(claps.has(x.id) && x.clap > claps.get(x.id) && x.id === lockedId && onClap) onClap(); claps.set(x.id, x.clap); }
+    if(b){
+      // torso (cx); si el programa es viejo y no lo manda, el promedio de las manos
+      let u = Number.isFinite(b.cx) ? b.cx : null;
+      if(u === null){ const hs = Object.values(b.hands || {}).filter(h=>Number.isFinite(h.sx)); if(hs.length) u = hs.reduce((a,h)=>a+h.sx,0)/hs.length; }
+      K.raw = u; K.body = b;
+      if(u !== null){ let v = (u - K.margin) / (1 - 2*K.margin); if(K.mirror) v = 1 - v; K.cx = clamp(v, 0, 1); }
+    } else { K.body = null; K.raw = null; }
+  };
+  es.onerror = ()=>{ K.status = K.lastMsg ? 'reconectando' : 'sin auralis_visuals.py'; };
+})();
+
+let mouseX = null, mouseSeen = 0;
+stage.addEventListener('pointermove', e=>{ mouseX = e.clientX / innerWidth; mouseSeen = performance.now(); });
+stage.addEventListener('pointerdown', e=>{ mouseX = e.clientX / innerWidth; mouseSeen = performance.now(); unlockAudio(); });
+
+/* ============================================================
+   AUDIO — un solo contexto (buffer grande), voces nativas ligeras
+   ============================================================ */
+try{ Tone.setContext(new Tone.Context({ latencyHint:'playback', lookAhead:.2 }), true); }catch(e){}
+const ctx = ()=> Tone.getContext();
+const now = ()=> Tone.immediate();
+const mtof = m => 440*Math.pow(2,(m-69)/12);
+const sec = v => Tone.Time(v).toSeconds();
+function gainNode(v=0){ const g = ctx().createGain(); g.gain.value = v; return g; }
+function rawBus(dest, db=0){ const g = gainNode(Tone.dbToGain(db)); Tone.connect(g, dest); return g; }
+function mkOsc(wave, f, t){ const o = ctx().createOscillator(); if(typeof wave === 'string') o.type = wave; else o.setPeriodicWave(wave); o.frequency.setValueAtTime(f, t); return o; }
+const _w = new Map();
+function pwave(p){ const k = p.join(','); if(!_w.has(k)){ const re = new Float32Array(p.length+1), im = new Float32Array(p.length+1); p.forEach((a,i)=>im[i+1]=a); _w.set(k, ctx().createPeriodicWave(re, im)); } return _w.get(k); }
+let _noise = null;
+function noiseBuf(){ if(_noise) return _noise; const sr = ctx().sampleRate, b = ctx().createBuffer(1, sr*3, sr), d = b.getChannelData(0); let last = 0;
+  for(let i=0;i<d.length;i++){ const w = Math.random()*2-1; last = .97*last + .03*w; d[i] = w*.5 + last*2.2; } return _noise = b; }   // ruido algo "rosado"
+function holdAt(p,t){ try{ p.cancelAndHoldAtTime(t); }catch(e){ try{ p.cancelScheduledValues(t); }catch(_){} } }
+function adsr(g,t,dur,vel,a,d,s,r){ const p = g.gain, ta = t+Math.max(a,.003), tr = Math.max(t+dur,ta);
+  p.setValueAtTime(0,t); p.linearRampToValueAtTime(vel,ta); if(s<1) p.setTargetAtTime(vel*s,ta,Math.max(.004,d/3)); p.setTargetAtTime(0,tr,Math.max(.004,r/4)); return tr + r*1.6 + .02; }
+/* instrumento de notas sueltas: al llenarse apaga la más vieja (nunca tira la nueva) */
+function Inst(dest, db, max){
+  const bus = rawBus(dest, db), act = [];
+  const prune = n=>{ for(let i=act.length-1;i>=0;i--) if(act[i].end <= n) act.splice(i,1); };
+  return { bus,
+    add(src,g,end){ prune(now()); while(act.length >= max){ const v = act.shift(); holdAt(v.g.gain, now()); v.g.gain.setTargetAtTime(0, now(), .01); v.src.forEach(o=>{ try{ o.stop(now()+.06); }catch(e){} }); }
+      act.push({src,g,end}); src[0].onended = ()=>{ try{ g.disconnect(); }catch(e){} }; },
+    get count(){ prune(now()); return act.length; } };
+}
+function nOsc(inst, wave, f, t, dur, vel, a, d, s, r, lp){
+  const o = mkOsc(wave, f, t), g = gainNode(0); let last = o;
+  if(lp){ const fl = ctx().createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = lp.q||.8; fl.frequency.setValueAtTime(lp.peak||lp.f, t); if(lp.peak) fl.frequency.setTargetAtTime(lp.f, t, (lp.decay||.2)/3); o.connect(fl); last = fl; }
+  last.connect(g); g.connect(inst.bus); const end = adsr(g,t,dur,vel,a,d,s,r); o.start(t); o.stop(end); inst.add([o], g, end);
+}
+function nFM(inst, f, t, dur, vel, ratio, index, idxDecay, a, d, s, r){
+  const c = mkOsc('sine', f, t), m = mkOsc('sine', f*ratio, t), mg = gainNode(0);
+  mg.gain.setValueAtTime(f*index, t); mg.gain.setTargetAtTime(0, t+.002, idxDecay/3); m.connect(mg); mg.connect(c.frequency);
+  const g = gainNode(0); c.connect(g); g.connect(inst.bus); const end = adsr(g,t,dur,vel,a,d,s,r);
+  c.start(t); m.start(t); c.stop(end); m.stop(end); inst.add([c,m], g, end);
+}
+/* pad sostenido: voces fijas que se deslizan de acorde en acorde */
+function Pad(dest, db, wave, o){
+  const bus = rawBus(dest, db), rows = o.detune || [0]; let vs = null;
+  return { bus,
+    chord(midis, t, vel=.5){ const fr = midis.map(mtof).sort((x,y)=>x-y);
+      if(!vs){ vs = fr.map(f=>{ const g = gainNode(0); g.connect(bus); const oscs = rows.map(dt=>{ const x = mkOsc(wave,f,t); x.detune.value = dt; x.connect(g); x.start(t); return x; });
+        g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vel/rows.length, t+o.a); return {g,oscs,f}; }); return; }
+      vs.sort((x,y)=>x.f-y.f); vs.forEach((v,i)=>{ const f = fr[Math.min(i,fr.length-1)]; v.f = f; v.oscs.forEach(x=>x.frequency.setTargetAtTime(f, t, o.glide||.15)); }); },
+    release(t = now()){ if(!vs) return; for(const v of vs){ holdAt(v.g.gain,t); v.g.gain.setTargetAtTime(0,t,o.r/4); v.oscs.forEach(x=>{ try{ x.stop(t+o.r*1.6+.05); }catch(e){} }); const g = v.g; setTimeout(()=>{ try{ g.disconnect(); }catch(e){} }, (o.r*1.6+.6)*1000); } vs = null; },
+    get on(){ return !!vs; } };
+}
+
+/* ---------- cadena maestra: un limitador con su "makeup" compensado (no satura) ---------- */
+const LIM_T = -9, LIM_R = 20, MAKEUP = .6*(-LIM_T)*(1-1/LIM_R);
+function buildMaster(){
+  const out = new Tone.Volume(2).toDestination();
+  const safety = new Tone.WaveShaper(x=>{ const a = Math.abs(x); return a <= .7 ? x : Math.sign(x)*(.7 + .25*Math.tanh((a-.7)/.25)); }, 4096).connect(out);
+  const un = new Tone.Gain(Tone.dbToGain(-MAKEUP)).connect(safety);
+  const lim = new Tone.Compressor({ threshold:LIM_T, ratio:LIM_R, attack:.003, release:.2, knee:0 }).connect(un);
+  const shelf = new Tone.Filter({ frequency:160, type:'lowshelf', gain:-3 }).connect(lim);
+  const hp = new Tone.Filter({ frequency:60, type:'highpass', rolloff:-24 }).connect(shelf);
+  const bus = new Tone.Gain(.5).connect(hp);
+  // reverb: respuesta al impulso generada una vez (2.8 s)
+  const sr = ctx().sampleRate, n = Math.floor(sr*2.8), L = new Float32Array(n), R = new Float32Array(n);
+  for(let i=0;i<n;i++){ const e = Math.pow(1-i/n, 3.2); L[i] = (Math.random()*2-1)*e; R[i] = (Math.random()*2-1)*e; }
+  const rev = new Tone.Convolver(Tone.ToneAudioBuffer.fromArray([L,R])).connect(bus);
+  const revIn = new Tone.Filter(250,'highpass').connect(rev);
+  return { bus, revIn, out };
+}
+
+/* ---------- capas: todas siguen a "vida" (= porcentaje de imagen izquierda) ---------- */
+const KEY = { root:62, chords:[ [50,57,62,66,69,76], [47,54,59,62,66,73], [43,50,55,59,62,71], [45,52,57,61,64,71] ] };  // D · Bm · G · A (voicings abiertos)
+const SCALE = [0,2,4,7,9,11];   // pentatónica mayor + 7ª: siempre consonante
+let A = null;
+function buildAudio(){
+  const M = buildMaster();
+  const layer = (db, wet=.4)=>{ const g = new Tone.Gain(0).connect(M.bus); const s = new Tone.Gain(wet).connect(M.revIn); g.connect(s); return { g, db }; };
+  const L = {
+    drone: layer(0, .3), pad: layer(0, .5), arp: layer(0, .45), bell: layer(0, .7), bird: layer(0, .35), water: layer(0, .15)
+  };
+  const padF = new Tone.Filter(500,'lowpass').connect(L.pad.g);
+  const drone = Pad(L.drone.g, -20, pwave([1,.5,.25,.12]), { a:4, r:4, glide:.6 });
+  const pad = Pad(padF, -24, 'triangle', { a:3, r:3, glide:.4, detune:[-6,6] });
+  const arp = Inst(L.arp.g, -16, 6), bell = Inst(L.bell.g, -20, 4), bird = Inst(L.bird.g, -14, 8);
+  const W_ARP = pwave([1,.4,.25,.12,.06]);
+  // agua: ruido en bucle → pasabanda + modulación lenta
+  const wsrc = ctx().createBufferSource(); wsrc.buffer = noiseBuf(); wsrc.loop = true;
+  const wf = new Tone.Filter({ frequency:1100, type:'bandpass', Q:.6 }).connect(L.water.g);
+  const wf2 = new Tone.Filter({ frequency:2600, type:'peaking', Q:3, gain:6 }).connect(wf);
+  Tone.connect(wsrc, wf2); wsrc.start();
+  A = { M, L, padF, drone, pad, arp, bell, bird, W_ARP, step:0, chord:0, life:0 };
+  Tone.getContext().transport.bpm.value = 68;
+  Tone.getContext().transport.scheduleRepeat(onStep, '8n');
+  Tone.getContext().transport.start();
+}
+/* canto de ave sintético: 2–5 silbidos con barrido de tono */
+function birdCall(t, life){
+  const base = 2200 + Math.random()*1800, n = 2 + Math.floor(Math.random()*4), up = Math.random() < .5;
+  const pan = ctx().createStereoPanner(); pan.pan.value = Math.random()*1.6 - .8; pan.connect(A.bird.bus);
+  const inst = { bus: pan, add:(s,g,e)=>A.bird.add(s,g,e) };
+  for(let k=0;k<n;k++){
+    const tt = t + k*(.09 + Math.random()*.05), f0 = base*(1 + k*.04), f1 = f0*(up ? 1.35 : .72);
+    const o = mkOsc('sine', f0, tt), g = gainNode(0);
+    o.frequency.exponentialRampToValueAtTime(f1, tt + .07);
+    o.connect(g); g.connect(pan);
+    const end = adsr(g, tt, .06, .35*(.5+Math.random()*.5), .006, .03, .6, .04);
+    o.start(tt); o.stop(end); A.bird.add([o], g, end);
+  }
+  setTimeout(()=>{ try{ pan.disconnect(); }catch(e){} }, 2500);
+}
+/* reloj musical (corcheas) */
+function onStep(time){
+  if(!A) return;
+  const s = A.step++ % 16, life = A.life;
+  if(s === 0){
+    A.chord = (A.chord + (A.step > 1 ? 1 : 0)) % 4;
+    const ch = KEY.chords[A.chord];
+    if(life > .03){ A.drone.chord([ch[0]-12], time, .9); A.pad.chord(ch.slice(1,5), time, .6); }
+  }
+  if(life < .03){ if(A.pad.on){ A.pad.release(time); A.drone.release(time); } return; }
+  // arpegio: más denso y más agudo con más vegetación
+  if(life > .28 && Math.random() < .25 + life*.6){
+    const ch = KEY.chords[A.chord], oct = life > .7 && Math.random() < .5 ? 12 : 0;
+    const m = ch[2 + Math.floor(Math.random()*4)] + 12 + oct;
+    nOsc(A.arp, A.W_ARP, mtof(m), time, sec('8n'), .35 + life*.3, .004, .5, 0, .6, { f:900 + life*2500, peak:3500, decay:.25, q:1 });
+  }
+  // campanas: solo con mucha vegetación
+  if(life > .6 && s % 4 === 2 && Math.random() < life*.5){
+    const m = KEY.root + 12 + SCALE[Math.floor(Math.random()*SCALE.length)] + (Math.random()<.4?12:0);
+    nFM(A.bell, mtof(m), time, sec('16n'), .25, 3.5, 3, 1.2, .005, 2.2, 0, 1.6);
+  }
+}
+/* ---------- loops de naturaleza: <audio> en bucle (Freesound + recursos/sonidos) ---------- */
+const loops = [];
+function addLoop(name, urls, curve){
+  const el = new Audio(); el.loop = true; el.preload = 'auto'; el.volume = 0;
+  let j = 0; el.onerror = ()=>{ if(++j < urls.length){ el.src = urls[j]; if(state.started) el.play().catch(()=>{}); } else lp.ok = false; };
+  el.oncanplay = ()=>{ lp.ok = true; };
+  el.src = urls[0];
+  const lp = { name, el, curve, vol:0, ok:null };
+  loops.push(lp);
+}
+NATURE.forEach(n=>addLoop(n.name, n.urls, n.curve));
+fetch(BRIDGE + '/sonidos.json').then(r=>r.json()).then(files=>{
+  (files||[]).forEach(f=>addLoop(f, [BRIDGE + '/sonidos/' + encodeURIComponent(f)], a => .5*Math.pow(a, 1.2)));
+  if(state.started) loops.forEach(l=>l.el.play().catch(()=>{}));
+}).catch(()=>{});
+
+/* ============================================================
+   ARRANQUE, BUCLE Y CONTROLES
+   ============================================================ */
+const state = { started:false, muted:false, split:.5, life:.5 };
+async function start(){
+  if(state.started) return;
+  state.started = true;
+  try{ await Promise.race([Tone.start(), new Promise(r=>setTimeout(r,800))]); }catch(e){}
+  buildAudio();
+  loops.forEach(l=>l.el.play().catch(()=>{}));
+  $('intro').classList.add('out');
+  checkLock();
+}
+function unlockAudio(){
+  if(!state.started) return;
+  if(ctx().state !== 'running') ctx().resume().catch(()=>{});
+  loops.forEach(l=>{ if(l.el.paused) l.el.play().catch(()=>{}); });
+  setTimeout(checkLock, 300);
+}
+function checkLock(){ $('lock').hidden = !state.started || (ctx().state === 'running' && loops.every(l=>!l.ok || !l.el.paused)); }
+$('btn-start').onclick = start;
+document.addEventListener('keydown', e=>{
+  unlockAudio();
+  if(!state.started && (e.key === 'Enter' || e.key === ' ')) start();
+  if(e.key === 'ArrowRight') showPair(cur+1);
+  if(e.key === 'ArrowLeft') showPair(cur-1);
+  if(e.key === 'm' || e.key === 'M'){ K.mirror = !K.mirror; try{ localStorage.setItem('sonora-mirror', K.mirror ? '1' : '0'); }catch(_){} }
+  if(e.key === 'c' || e.key === 'C') toggleCam();
+  if(e.key === 'i' || e.key === 'I') document.body.classList.toggle('info');
+  if(e.key === 'f' || e.key === 'F'){ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(()=>{}); }
+});
+document.addEventListener('pointerdown', unlockAudio);
+setInterval(checkLock, 1500);
+let lastClap = 0;
+onClap = ()=>{ const t = performance.now(); if(state.started && t - lastClap > 1500){ lastClap = t; showPair(cur+1); } };
+$('btn-mute').onclick = e=>{
+  state.muted = !state.muted;
+  ctx().destination.mute = state.muted;
+  e.currentTarget.textContent = state.muted ? 'Sonido off' : 'Sonido on';
+};
+
+/* cámara del Kinect: vista del sensor + línea donde está el torso */
+const cam = $('cam'), camImg = cam.querySelector('img'), camCv = cam.querySelector('canvas'), camG = camCv.getContext('2d');
+function toggleCam(){
+  const on = !cam.classList.contains('on'); cam.classList.toggle('on', on);
+  camImg.src = on ? BRIDGE + '/preview.mjpg?t=' + Date.now() : '';
+}
+
+let bodyBorn = 0, lastUI = 0, lastFrame = 0;
+function frame(t){
+  requestAnimationFrame(frame);
+  const dt = lastFrame ? Math.min(t - lastFrame, 100) : 16; lastFrame = t;
+  if(K.lastMsg && t - K.lastMsg > 1500){ K.body = null; K.raw = null; if(K.status === 'on') K.status = 'sin datos'; }
+
+  // de dónde sale la posición: cuerpo > mouse reciente > reposo al centro
+  let target = null, src = 'ninguno';
+  if(K.body && K.cx !== null){ target = K.cx; src = 'cuerpo'; }
+  else if(mouseX !== null && t - mouseSeen < 4000){ target = mouseX; src = 'mouse'; }
+  if(target === null) target = .5;
+  const k = 1 - Math.pow(src === 'mouse' ? .75 : .9, dt/16.7);       // el cuerpo se suaviza más (barrido cinematográfico)
+  state.split = lerp(state.split, target, k);
+  // vida = porcentaje de imagen izquierda (con vegetación), más lenta para el audio
+  state.life = lerp(state.life, state.split, 1 - Math.pow(.94, dt/16.7));
+
+  // portada: pararse frente al Kinect 1.5 s también entra
+  if(!state.started){ bodyBorn = K.body ? (bodyBorn || t) : 0; if(bodyBorn && t - bodyBorn > 1500) start(); }
+
+  const pct = Math.round(state.split*100);
+  document.documentElement.style.setProperty('--split', (state.split*100).toFixed(2) + '%');
+  $('pct').textContent = `vida ${pct}%`;
+  $('hint').classList.toggle('on', state.started && src === 'ninguno');
+
+  if(A){
+    const life = A.life = clamp(state.life, 0, 1);
+    const L = A.L, sil = life < .02 ? 0 : 1;           // toda la imagen derecha = silencio
+    const set = (lay, v)=> lay.g.gain.rampTo(v*sil, .25);
+    if(t - lastUI > 60){
+      set(L.drone, Math.min(1, life*2.2));
+      set(L.pad,   Math.pow(life, 1.1));
+      set(L.arp,   clamp((life - .25)/.5, 0, 1));
+      set(L.bell,  clamp((life - .55)/.35, 0, 1));
+      set(L.bird,  clamp((life - .35)/.5, 0, 1));
+      set(L.water, .5*Math.pow(life, 1.3));
+      A.padF.frequency.rampTo(300 + life*2200, .4);
+      // aves sintéticas: más frecuentes cuanto más verde
+      if(life > .4 && Math.random() < (life - .4)*.09) birdCall(now() + .05, life);
+    }
+    for(const l of loops){
+      const v = state.muted ? 0 : clamp(l.curve(life)*sil, 0, 1);
+      l.vol = lerp(l.vol, v, .08);
+      if(Math.abs(l.el.volume - l.vol) > .003) l.el.volume = l.vol;
+    }
+  }
+
+  if(t - lastUI > 60){
+    lastUI = t;
+    $('i-amt').textContent = Math.round(state.life*100) + '%';
+    $('i-body').textContent = src;
+    $('i-k').textContent = K.status + (K.bodies ? ` · ${K.bodies} cuerpo(s)` : '') + (K.mirror ? ' · invertido' : '');
+    $('i-v').textContent = A ? (A.arp.count + A.bell.count + A.bird.count + (A.pad.on?8:0) + (A.drone.on?1:0)) : '—';
+    $('i-loops').textContent = loops.map(l=>`${l.name}: ${l.ok === false ? 'no cargó' : l.ok ? Math.round(l.vol*100)+'%' : '…'}`).join(' · ');
+    $('intro-k').style.opacity = K.status === 'on' ? 1 : .35;
+    if(cam.classList.contains('on')) drawCam();
+  }
+}
+function drawCam(){
+  const r = camCv.getBoundingClientRect(), d = devicePixelRatio || 1;
+  camCv.width = r.width*d; camCv.height = r.height*d; camG.setTransform(d,0,0,d,0,0);
+  const w = r.width, h = r.height, m = K.margin;
+  camG.clearRect(0,0,w,h);
+  camG.setLineDash([4,3]); camG.strokeStyle = 'rgba(155,227,122,.8)'; camG.strokeRect(m*w, 4, w*(1-2*m), h-8); camG.setLineDash([]);
+  if(K.raw !== null){ camG.strokeStyle = '#fff'; camG.lineWidth = 2; camG.beginPath(); camG.moveTo(K.raw*w, 0); camG.lineTo(K.raw*w, h); camG.stroke(); }
+  cam.querySelector('.t').textContent = K.status !== 'on' ? 'Kinect: ' + K.status : K.body ? `torso detectado${K.body.z ? ' · '+K.body.z+' m' : ''}` : 'no veo a nadie';
+}
+requestAnimationFrame(frame);
+</script>
 </body>
 </html>

@@ -10,8 +10,13 @@ Pensado para sala oscura: fondo negro, todo sale del sensor de PROFUNDIDAD
     py auralis_visuals.py --image aerosoles.png   # explorar el mapa de aerosoles GEOS
     py auralis_visuals.py --image aerosoles.png --hotspots   # + puntos de interés
     py auralis_visuals.py --replay sesion.jsonl            # sin Kinect
+    py auralis_visuals.py --no-web             # sin puente para Earth Jukebox
+
+Earth Jukebox (navegador): mientras este programa corre, abre earth-jukebox/index.html
+con doble clic. La página se conecta sola: recibe las manos y la vista del sensor.
 
 Teclas:  Q salir · F pantalla completa (visuales) · M cambiar estilo del cuerpo
+         V visuales de Python on/off mientras Earth Jukebox está conectado
 
 Uso desde otro programa:
     vis = Visuals()
@@ -19,8 +24,12 @@ Uso desde otro programa:
 """
 from __future__ import annotations
 
+import json
+import threading
 import time
 from collections import deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -404,6 +413,230 @@ class Visuals:
         return cv2.bitwise_and(col, col, mask=mask)
 
 
+# ---------------------------------------------------------------------------
+# Puente para Earth Jukebox (navegador)
+#   /events        manos de cada cuerpo, ~30 veces por segundo (Server-Sent Events)
+#   /preview.mjpg  vista del sensor de profundidad con el esqueleto (para comprobar
+#                  que toma las manos). Solo se genera si alguien la está viendo.
+#   /compare.json, /compare/<carpeta>/<archivo>  pares de imágenes de recursos/compare (SONORA)
+#   /sonidos.json, /sonidos/<archivo>             loops de naturaleza de recursos/sonidos (SONORA)
+#   /space/<archivo>  imágenes de recursos/space (así la página, abierta con doble
+#                  clic, puede leer sus píxeles; el navegador bloquea leerlas directo)
+# Coordenadas de las manos normalizadas 0..1 en la imagen del sensor (320x240),
+# las mismas que usa la vista previa, así los puntos caen sobre el esqueleto.
+# ---------------------------------------------------------------------------
+WEB_PORT = 8765
+SPACE_DIR = Path(__file__).resolve().parent.parent / "recursos" / "space"
+COMPARE_DIR = Path(__file__).resolve().parent.parent / "recursos" / "compare"   # pares para SONORA
+SOUNDS_DIR = Path(__file__).resolve().parent.parent / "recursos" / "sonidos"    # loops extra para SONORA
+AUDIO_TYPES = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".m4a": "audio/mp4"}
+IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
+def _sensor_uv(p):
+    """Punto 3D (m) → (u, v) normalizado 0..1 en la imagen del sensor."""
+    z = max(float(p[2]), 0.1)
+    return ((DEPTH_C[0] + p[0] * DEPTH_F / z) / 320.0,
+            (DEPTH_C[1] - p[1] * DEPTH_F / z) / 240.0)
+
+
+class WebBridge:
+    def __init__(self, port=WEB_PORT):
+        self.cond = threading.Condition()
+        self.msg, self.seq = b'{"primary":null,"bodies":[]}', 0
+        self.jpg, self.jseq, self.viewers = None, 0, 0
+        self.clients = 0          # páginas de Earth Jukebox conectadas a /events
+        self.claps = {}
+        self._last_jpg = 0.0
+        bridge = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _head(self, ctype):
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Access-Control-Allow-Origin", "*")   # página abierta con doble clic
+                self.end_headers()
+
+            def _serve_json(self, obj):
+                data = json.dumps(obj).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _serve_file(self, folder, name, types):
+                from urllib.parse import unquote
+                f = folder / Path(unquote(name)).name             # solo el nombre: nada fuera de la carpeta
+                ctype = types.get(f.suffix.lower())
+                if not ctype or not f.is_file():
+                    self.send_error(404)
+                    return
+                data = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "max-age=3600")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):
+                path = self.path.split("?")[0]
+                try:
+                    if path == "/events":
+                        self._head("text/event-stream")
+                        bridge._serve_events(self.wfile)
+                    elif path == "/preview.mjpg":
+                        self._head("multipart/x-mixed-replace; boundary=frame")
+                        bridge._serve_mjpg(self.wfile)
+                    elif path.startswith("/space/"):
+                        self._serve_file(SPACE_DIR, path[len("/space/"):], IMG_TYPES)
+                    elif path == "/compare.json":
+                        self._serve_json(bridge.compare_list())
+                    elif path.startswith("/compare/"):
+                        sub = path[len("/compare/"):].split("/")
+                        if len(sub) == 2:
+                            self._serve_file(COMPARE_DIR / Path(sub[0]).name, sub[1], IMG_TYPES)
+                        else:
+                            self.send_error(404)
+                    elif path == "/sonidos.json":
+                        files = sorted(f.name for f in SOUNDS_DIR.glob("*") if f.suffix.lower() in AUDIO_TYPES) \
+                            if SOUNDS_DIR.is_dir() else []
+                        self._serve_json(files)
+                    elif path.startswith("/sonidos/"):
+                        self._serve_file(SOUNDS_DIR, path[len("/sonidos/"):], AUDIO_TYPES)
+                    else:
+                        self.send_error(404)
+                except OSError:      # el navegador cerró la conexión
+                    pass
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        self.httpd.daemon_threads = True
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown()
+
+    @staticmethod
+    def compare_list():
+        """Carpetas de recursos/compare con 2 imágenes: [{folder, files:[izquierda, derecha]}].
+        Se ordenan por nombre (la fecha va en el nombre): la primera = izquierda (más vegetación)."""
+        out = []
+        if COMPARE_DIR.is_dir():
+            for d in sorted(p for p in COMPARE_DIR.iterdir() if p.is_dir()):
+                imgs = sorted(f.name for f in d.iterdir() if f.suffix.lower() in IMG_TYPES)
+                if len(imgs) >= 2:
+                    out.append({"folder": d.name, "files": imgs[:2]})
+        return out
+
+    # ---- hilos del servidor ----
+    def _serve_events(self, out):
+        with self.cond:
+            self.clients += 1
+        try:
+            seen = -1
+            while True:
+                with self.cond:
+                    self.cond.wait_for(lambda: self.seq != seen, timeout=1.0)
+                    fresh, seen, msg = self.seq != seen, self.seq, self.msg
+                out.write(b"data: " + msg + b"\n\n" if fresh else b": ping\n\n")
+                out.flush()
+        finally:
+            with self.cond:
+                self.clients -= 1
+
+    def _serve_mjpg(self, out):
+        with self.cond:
+            self.viewers += 1
+        try:
+            seen = -1
+            while True:
+                with self.cond:
+                    self.cond.wait_for(lambda: self.jseq != seen and self.jpg is not None, timeout=1.0)
+                    if self.jseq == seen or self.jpg is None:
+                        continue
+                    seen, jpg = self.jseq, self.jpg
+                out.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                          + str(len(jpg)).encode() + b"\r\n\r\n" + jpg + b"\r\n")
+                out.flush()
+        finally:
+            with self.cond:
+                self.viewers -= 1
+
+    # ---- hilo principal: llamar en cada vuelta del bucle ----
+    def publish(self, tracker, bodies):
+        for name, slot in tracker.events:
+            if name == "clap":
+                self.claps[slot] = self.claps.get(slot, 0) + 1
+        out = []
+        for b in bodies:
+            spine = b.joint("Spine")
+            spine_y = float(spine[1])
+            sw = max(0.15, abs(float(b.joint("ShoulderRight")[0]) - float(b.joint("ShoulderLeft")[0])))
+            hands = {}
+            for key, hand in (("L", b.left), ("R", b.right)):
+                if not hand.tracked:
+                    continue
+                u, v = _sensor_uv(hand.pos)
+                # x, y en "anchos de hombro" respecto al torso (y hacia abajo): lo usa Visora (kinect_bridge.js)
+                hx = (float(hand.pos[0]) - float(spine[0])) / sw
+                hy = -(float(hand.pos[1]) - float(spine[1])) / sw
+                hands[key] = {"sx": round(u, 4), "sy": round(v, 4), "x": round(hx, 4), "y": round(hy, 4), "vis": True,
+                              "on": bool(float(hand.pos[1]) > spine_y),   # levantada = encima del torso
+                              "held": False}
+            cx, cy = _sensor_uv(b.joint("Spine"))       # torso: lo usa SONORA como barredor
+            out.append({"id": b.slot + 1, "z": round(float(b.distance), 1),
+                        "cx": round(cx, 4), "cy": round(cy, 4),
+                        "clap": self.claps.get(b.slot, 0), "hands": hands})
+        nearest = min(bodies, key=lambda x: x.distance, default=None)
+        msg = json.dumps({"primary": nearest.slot + 1 if nearest else None,
+                          "bodies": out}).encode()
+        jpg = None
+        now = time.perf_counter()
+        if self.viewers and tracker.new_frame and now - self._last_jpg > 1 / 15:
+            self._last_jpg = now
+            jpg = self._preview(tracker, bodies)
+        with self.cond:
+            if msg != self.msg:
+                self.msg, self.seq = msg, self.seq + 1
+            if jpg is not None:
+                self.jpg, self.jseq = jpg, self.jseq + 1
+            self.cond.notify_all()
+
+    def _preview(self, tracker, bodies):
+        """Profundidad en gris + silueta + esqueleto, en el mismo encuadre que las manos."""
+        depth = tracker.depth
+        img = np.zeros((240, 320, 3), np.uint8)
+        if depth is not None and depth.shape[:2] == (240, 320):
+            d = depth.astype(np.float32)
+            valid = d > 0
+            if valid.sum() > 50:
+                lo, hi = np.percentile(d[valid], [2, 98])
+                near = np.clip((hi - d) / max(hi - lo, 1.0), 0, 1)
+                g = np.where(valid, 30 + near * 170, 0).astype(np.uint8)
+                img = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
+        mask = tracker.mask
+        if mask is not None and mask.shape[:2] == (240, 320):
+            m = mask > 0
+            img[m] = (img[m] * 0.6 + np.array([90, 50, 10])).clip(0, 255).astype(np.uint8)
+        img = cv2.resize(img, (640, 480), interpolation=cv2.INTER_NEAREST)
+        for b in bodies:
+            pts = [tuple(int(v * s) for v, s in zip(_sensor_uv(p), (640, 480))) for p in b.joints]
+            for a, c in BONES:
+                if b.state[J[a]] and b.state[J[c]]:
+                    cv2.line(img, pts[J[a]], pts[J[c]], (200, 200, 200), 2, cv2.LINE_AA)
+            cv2.putText(img, f"P{b.slot + 1}  {b.distance:.1f} m", pts[J["Head"]],
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        return buf.tobytes() if ok else None
+
+
 def letterbox(frame, win):
     """Añade barras negras para que la imagen no se deforme al estirar la ventana."""
     try:
@@ -436,6 +669,9 @@ def main():
     ap.add_argument("--solo", action="store_true",
                     help="solo visuales: no abrir la ventana de control (cámara + esqueleto)")
     ap.add_argument("--tilt", type=int, help="inclinación del motor, -27..27")
+    ap.add_argument("--no-web", action="store_true",
+                    help="no mandar manos ni vista del sensor a Earth Jukebox (navegador)")
+    ap.add_argument("--web-port", type=int, default=WEB_PORT, help="puerto del puente web")
     ap.add_argument("--no-depth", action="store_true",
                     help="no abrir el flujo de profundidad (silueta aproximada con el esqueleto)")
     args = ap.parse_args()
@@ -453,6 +689,17 @@ def main():
             raise SystemExit("No se pudo abrir la imagen: " + args.image)
     vis = Visuals(image=image, hotspots=args.hotspots)
 
+    web = None
+    if not args.no_web:
+        try:
+            web = WebBridge(args.web_port)
+            print(f"Earth Jukebox: puente listo en el puerto {args.web_port}. "
+                  "Abre earth-jukebox/index.html con doble clic.")
+            n = len([f for f in SPACE_DIR.glob("*") if f.suffix.lower() in IMG_TYPES]) if SPACE_DIR.is_dir() else 0
+            print(f"Earth Jukebox: {n} imágenes en {SPACE_DIR}")
+        except OSError as e:
+            print("Earth Jukebox: no se pudo abrir el puerto", args.web_port, "-", e)
+
     win = "AURALIS LAB"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     full = args.fullscreen
@@ -463,12 +710,35 @@ def main():
         cv2.moveWindow(win, 660, 0)
     cv2.resizeWindow(win, 854, 480)
     log, fps, last = [], 30.0, time.perf_counter()
+    # Mientras la página está conectada, los visuales de Python (9000 partículas, desenfoques,
+    # bloom en cada cuadro) se pausan: le roban CPU al navegador y el audio se trababa.
+    # V los vuelve a encender.
+    force_vis, paused, idle_frame, last_idle = False, False, None, 0.0
     if full:
         cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     try:
         while True:
             bodies = tracker.update()
-            cv2.imshow(win, letterbox(vis.render(tracker), win))
+            if web:
+                web.publish(tracker, bodies)
+            pause = bool(web and web.clients and not force_vis)
+            if pause != paused:
+                paused = pause
+                print("Earth Jukebox conectado: visuales de Python en pausa para dejar CPU al audio "
+                      "(V para verlos)." if pause else "Visuales de Python activos.")
+            if paused:
+                now = time.perf_counter()
+                if now - last_idle > 0.5:          # cuadro ligero, 2 veces por segundo
+                    last_idle = now
+                    if idle_frame is None:
+                        idle_frame = np.zeros((480, 854, 3), np.uint8)
+                        cv2.putText(idle_frame, "Earth Jukebox conectado", (230, 220),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 200, 200), 2, cv2.LINE_AA)
+                        cv2.putText(idle_frame, "visuales en pausa para el audio - V para verlos", (165, 260),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (140, 140, 140), 1, cv2.LINE_AA)
+                    cv2.imshow(win, letterbox(idle_frame, win))
+            else:
+                cv2.imshow(win, letterbox(vis.render(tracker), win))
             if ctrl and tracker.new_frame:
                 now = time.perf_counter()
                 fps += 0.1 * (1.0 / max(1e-3, now - last) - fps)
@@ -485,11 +755,15 @@ def main():
                 full = not full
                 cv2.setWindowProperty(win, cv2.WND_PROP_FULLSCREEN,
                                       cv2.WINDOW_FULLSCREEN if full else cv2.WINDOW_NORMAL)
+            if key == ord("v"):
+                force_vis = not force_vis
             if key == ord("m"):
                 options = vis.styles()
                 vis.style = options[(options.index(vis.style) + 1) % len(options)]
                 print("Estilo:", vis.style)
     finally:
+        if web:
+            web.close()
         tracker.close()
         cv2.destroyAllWindows()
 

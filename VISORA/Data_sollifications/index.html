@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earth Jukebox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<!-- orden importa: data → audio → effects → hands → preview → main -->
+<script src="js/data.js" defer></script>
+<script src="js/audio.js" defer></script>
+<script src="js/effects.js" defer></script>
+<script src="js/hands.js" defer></script>
+<script src="js/preview.js" defer></script>
+<script src="js/main.js" defer></script>
+</head>
+<body>
+
+<div id="intro">
+  <p>NASA Space Apps Challenge · 2026</p>
+  <h1>Earth Jukebox</h1>
+  <p class="soft">Tus manos tocan la música. Cada nota nace del píxel sobre el que pasas, el color decide la armonía y la velocidad de tus manos decide el ritmo.</p>
+  <button id="btn-start">Entrar</button>
+  <p id="intro-hint" class="hint" hidden>o levanta una mano frente al Kinect</p>
+  <div id="intro-meter"><i></i></div>
+</div>
+
+<main>
+  <figure id="stage">
+    <div id="frame" role="img" aria-label="Imagen: mueve las manos para tocarla">
+      <canvas id="gl"></canvas>
+      <canvas id="hud"></canvas>
+    </div>
+    <!-- lo único encima de la imagen: título tenue arriba; controles solo al pasar el mouse -->
+    <div class="ov ov-top"><span id="count">01 / 06</span><span id="cap-t">—</span><span id="kinect-state"></span></div>
+    <div class="ov ov-bottom">
+      <span id="cap-n" hidden>01</span><span id="cap-m">—</span>
+      <button class="swap" id="btn-file" type="button">Cargar imagen</button>
+      <button class="swap" id="btn-url" type="button">Pegar URL</button>
+      <input type="file" id="file" accept="image/*" hidden>
+    </div>
+    <button id="prev" class="arrow left" aria-label="Imagen anterior">‹</button>
+    <button id="next" class="arrow right" aria-label="Imagen siguiente">›</button>
+  </figure>
+</main>
+
+<button id="btn-mute">Sonido on</button>
+
+<!-- datos técnicos: ocultos, tecla I para verlos -->
+<div id="bar">
+  <span>Nota<b id="t-note">—</b></span>
+  <span>Acorde<b id="t-chord">—</b></span>
+  <span>Manos<b id="t-hands">—</b></span>
+  <span>Luz<b id="t-lum">—</b></span>
+  <span>Vel<b id="t-vel">—</b></span>
+  <span>BPM<b id="t-bpm">—</b></span>
+  <span>Textura<b id="t-tex">—</b></span>
+  <span>Voces<b id="t-voices">—</b></span>
+  <span id="choir-state">coro: —</span>
+</div>
+
+<div id="audio-lock" hidden>El navegador bloqueó el sonido · haz clic o pulsa una tecla una vez</div>
+
+</body>
+</html>

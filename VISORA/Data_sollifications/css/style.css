@@ -1,0 +1,81 @@
+/* ============================================================
+   EARTH JUKEBOX · style.css
+   ============================================================ */
+:root{ --bg:#0a0a0a; --fg:#ecece6; --mut:#6c6c66; --line:#3a3a36; --acc:#eaff3b; --acc2:#7df9ff; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--fg);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+button{font:inherit}
+
+/* ---------- intro ---------- */
+#intro{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;text-align:center;padding:24px;transition:opacity .6s}
+#intro.out{opacity:0;pointer-events:none}
+#intro h1{font-weight:300;font-size:clamp(34px,6vw,64px);letter-spacing:-.02em}
+#intro p{font-size:12px;color:var(--mut);letter-spacing:.16em;text-transform:uppercase}
+#intro p.soft{letter-spacing:.06em;text-transform:none;max-width:460px;line-height:1.75;font-size:13px}
+#intro p.hint{font:400 11px 'JetBrains Mono',monospace;letter-spacing:.14em;color:var(--acc2)}
+#intro-meter{width:180px;height:2px;background:#1c1c1a}
+#intro-meter i{display:block;height:100%;width:0;background:var(--acc2);transition:width .1s linear}
+#btn-start{font:500 12px 'JetBrains Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--fg);background:none;border:1px solid var(--line);padding:14px 28px;cursor:pointer;transition:all .25s}
+#btn-start:hover{border-color:var(--acc);color:var(--acc)}
+
+/* ---------- escenario: la imagen ocupa toda la pantalla (3:2, sin marcos) ---------- */
+html,body{height:100%;overflow:hidden;background:#000}
+main{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+#stage{position:relative;width:min(100vw, 150vh);aspect-ratio:3/2}
+#frame{position:absolute;inset:0;background:#000;cursor:crosshair;touch-action:none;overflow:hidden}
+#frame canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#frame #hud{pointer-events:none}
+#frame.drag{outline:1px dashed var(--acc);outline-offset:-6px}
+
+/* texto encima de la imagen: mínimo y tenue */
+.ov{position:absolute;left:0;right:0;display:flex;gap:14px;align-items:baseline;padding:14px 20px;
+    font:400 10px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase;
+    color:rgba(236,236,230,.55);text-shadow:0 1px 4px rgba(0,0,0,.9);pointer-events:none}
+.ov-top{top:0}
+.ov-top #kinect-state{margin-left:auto;color:var(--acc2);opacity:.8}
+.ov-bottom{bottom:0;opacity:0;transition:opacity .3s}
+#stage:hover .ov-bottom{opacity:1;pointer-events:auto}
+.swap{font:inherit;letter-spacing:inherit;text-transform:uppercase;color:rgba(236,236,230,.75);background:none;border:0;border-bottom:1px solid rgba(236,236,230,.3);cursor:pointer;padding:0}
+.swap:first-of-type{margin-left:auto}
+.swap:hover{color:var(--acc);border-color:var(--acc)}
+
+/* flechas: solo aparecen al pasar el mouse (con el Kinect se cambia con un aplauso) */
+.arrow{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:72px;border:0;background:rgba(0,0,0,.25);
+       color:#fff;font-size:30px;line-height:1;cursor:pointer;opacity:0;transition:opacity .3s}
+.arrow.left{left:10px} .arrow.right{right:10px}
+#stage:hover .arrow{opacity:.7}
+.arrow:hover{opacity:1 !important;color:var(--acc)}
+
+#btn-mute{position:fixed;right:14px;bottom:12px;z-index:20;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;
+          text-transform:uppercase;color:rgba(236,236,230,.6);background:rgba(0,0,0,.35);border:1px solid rgba(236,236,230,.2);padding:6px 10px;cursor:pointer}
+#btn-mute:hover{color:var(--acc);border-color:var(--acc)}
+
+/* datos técnicos ocultos (tecla I) */
+#bar{position:fixed;left:14px;bottom:12px;z-index:20;display:none;gap:18px;align-items:center;padding:6px 10px;background:rgba(0,0,0,.55);
+     font:400 10px 'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+body.info #bar{display:flex}
+#bar span b{color:var(--fg);font-weight:600;margin-left:6px}
+
+/* aviso de audio bloqueado por el navegador */
+#audio-lock{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:40;padding:10px 16px;background:#141412;border:1px solid var(--acc);color:var(--acc);font:500 11px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase}
+#audio-lock[hidden]{display:none}
+
+/* ---------- vista de la cámara del Kinect (preview.js) ---------- */
+#cam{position:fixed;left:12px;top:40px;z-index:30;width:260px;background:rgba(10,10,10,.82);border:1px solid rgba(236,236,230,.15);font:500 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:var(--mut)}
+.cam-head{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;color:var(--acc2);cursor:move;user-select:none;touch-action:none}
+.cam-head button{background:none;border:0;color:var(--fg);font-size:16px;line-height:1;cursor:pointer}
+.cam-head button:hover{color:var(--acc)}
+.cam-view{position:relative;width:100%;aspect-ratio:4/3;background:#000}
+.cam-view img,.cam-view canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.cam-view img{object-fit:fill}
+.cam-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:var(--mut);pointer-events:none}
+.cam-foot{padding:6px 8px;line-height:1.5;text-transform:uppercase}
+.cam-foot.ok{color:var(--acc)}
+#cam-tab{position:fixed;left:12px;top:40px;z-index:30;display:none;background:#0d0e0f;border:1px solid var(--line);color:var(--acc2);font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:7px 10px;cursor:pointer}
+#cam-tab:hover{border-color:var(--acc);color:var(--acc)}
+
+@media (max-width:760px){
+  .ov{padding:10px 12px}
+  #cam{width:200px}
+}

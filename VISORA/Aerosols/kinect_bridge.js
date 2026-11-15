@@ -6,6 +6,9 @@
 import * as THREE from 'three';
 import { starSettings } from './stars.js';
 
+// Datos del Kinect: los manda kinect/auralis_visuals.py (puerto 8765)
+const AURALIS = 'http://127.0.0.1:8765';
+
 // ---- Ajustes (los sliders del panel los cambian y se guardan en localStorage) ----
 const DEFAULTS = {
     rot: 0.7,        // radianes por ancho de hombros de movimiento de la mano
@@ -30,7 +33,7 @@ const saveParams = () => localStorage.setItem('visora.params', JSON.stringify(P)
 
 const MAX_STEP = 0.25;     // rad máximos de giro por mensaje
 const LOCK_LOST_MS = 700;  // ms sin ver al cuerpo fijado antes de cambiar a otra persona
-const COLORS = ['#00c800', '#ffa000', '#00a0ff', '#dc00dc'];   // un color por cuerpo
+const COLORS = ['#ffffff', '#bbbbbb', '#888888', '#555555'];   // colores en escala de grises
 
 export function initKinect({ scene, camera, controls, renderer, pivot }) {
     const pend = { theta: 0, phi: 0, zoom: 0 };
@@ -45,30 +48,32 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     // ---------- UI ----------
     const css = document.createElement('style');
     css.textContent = `
-        .vk-hud{position:fixed;left:12px;bottom:12px;z-index:10;font:12px 'Courier New',monospace;color:#0ff;
-            background:#020816cc;border:1px solid #0ff6;padding:4px 10px;letter-spacing:1px;
-            clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}
-        .vk-prev{position:fixed;left:12px;top:54px;width:256px;height:192px;border:1px solid #0ff8;z-index:8;
-            display:none;box-shadow:0 0 14px #0ff4;background:#000;overflow:hidden}
-        .vk-prev img{display:block;width:100%;height:100%;object-fit:cover}
+        .vk-hud{position:fixed;left:24px;top:20px;z-index:10;font-family:system-ui,-apple-system,sans-serif;font-size:10px;
+            color:#888;letter-spacing:0.1em;text-transform:uppercase;user-select:none;mix-blend-mode:difference;}
+        .vk-prev{position:fixed;left:24px;top:54px;width:256px;height:192px;border:1px solid #444;z-index:8;
+            display:none;background:#000;overflow:hidden;}
+        .vk-prev img{display:block;width:100%;height:100%;object-fit:cover;filter:grayscale(100%)}
         .vk-tab{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:21;cursor:pointer;
-            background:#020816dd;color:#0ff;border:1px solid #0ff8;border-right:0;padding:14px 8px;
-            font:bold 12px 'Courier New',monospace;writing-mode:vertical-rl;letter-spacing:3px;
-            box-shadow:0 0 12px #0ff4;user-select:none}
-        .vk-panel{position:fixed;right:0;top:50%;transform:translate(100%,-50%);z-index:20;width:290px;
-            max-height:86vh;overflow:auto;background:#020816ee;border:1px solid #0ff8;border-right:0;
-            box-shadow:-4px 0 24px #0ff3,inset 0 0 30px #f0f1;padding:14px 16px 16px;color:#cfe;
-            font:12px 'Courier New',monospace;transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+            background:transparent;color:#aaa;border:1px solid #444;border-right:0;padding:14px 8px;
+            font-family:system-ui,-apple-system,sans-serif;font-size:10px;writing-mode:vertical-rl;letter-spacing:0.15em;
+            user-select:none;transition:all 0.2s ease;}
+        .vk-tab:hover{color:#fff;border-color:#fff;}
+        .vk-panel{position:fixed;right:0;top:50%;transform:translate(100%,-50%);z-index:20;width:320px;
+            max-height:86vh;overflow:auto;background:#050505;border:1px solid #444;border-right:0;
+            padding:24px;color:#aaa;font-family:system-ui,-apple-system,sans-serif;font-size:11px;
+            transition:transform .35s cubic-bezier(.2,.8,.2,1)}
         .vk-panel.open{transform:translate(0,-50%)}
-        .vk-panel h3{margin:0 0 10px;font-size:13px;letter-spacing:3px;color:#f0f;text-shadow:0 0 8px #f0f}
-        .vk-row{margin:9px 0}
-        .vk-row label{display:flex;justify-content:space-between;color:#0ff}
+        .vk-panel h3{margin:0 0 20px;font-size:12px;font-weight:400;letter-spacing:0.15em;color:#fff;text-transform:uppercase;}
+        .vk-row{margin:16px 0}
+        .vk-row label{display:flex;justify-content:space-between;color:#aaa;margin-bottom:6px;letter-spacing:0.05em;text-transform:uppercase;}
         .vk-row b{color:#fff;font-weight:normal}
-        .vk-row input[type=range]{width:100%;accent-color:#f0f}
-        .vk-chk{display:flex;align-items:center;gap:8px;margin:8px 0;color:#0ff;cursor:pointer}
-        .vk-btn{margin-top:10px;width:100%;padding:7px;background:#0ff1;color:#0ff;border:1px solid #0ff8;
-            font:12px 'Courier New',monospace;letter-spacing:2px;cursor:pointer}
-        .vk-btn:hover{background:#0ff3}
+        .vk-row input[type=range]{width:100%;accent-color:#fff;background:#222;height:2px;appearance:none;outline:none;}
+        .vk-row input[type=range]::-webkit-slider-thumb{appearance:none;width:12px;height:12px;background:#fff;border-radius:50%;cursor:pointer;}
+        .vk-chk{display:flex;align-items:center;gap:10px;margin:12px 0;color:#aaa;cursor:pointer;letter-spacing:0.05em;text-transform:uppercase;}
+        .vk-chk input{accent-color:#000;border:1px solid #666;width:14px;height:14px;}
+        .vk-btn{margin-top:24px;width:100%;padding:10px;background:transparent;color:#aaa;border:1px solid #444;
+            font-family:inherit;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;cursor:pointer;transition:all 0.2s ease;}
+        .vk-btn:hover{color:#fff;border-color:#fff;}
     `;
     document.head.appendChild(css);
 
@@ -79,13 +84,13 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     document.body.appendChild(box);
     const badge = document.createElement('div');
     badge.className = 'vk-hud';
-    badge.textContent = 'Kinect: conectando…';
+    badge.textContent = 'KINECT: CONNECTING...';
     document.body.appendChild(badge);
 
     function showPreview(on) {
         P.preview = on;
         box.style.display = on ? 'block' : 'none';
-        img.src = on ? '/preview.mjpg' : '';      // oculta = no se descarga el vídeo
+        img.src = on ? AURALIS + '/preview.mjpg' : '';      // oculta = no se descarga el vídeo
     }
     showPreview(P.preview);
 
@@ -99,17 +104,17 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         ['hand', 'Filtro de manos', 0.1, 1, 0.05],
         ['dead', 'Zona muerta', 0, 0.05, 0.001],
         ['step', 'Umbral dos manos', 0.002, 0.06, 0.002],
-        ['margin', 'Límite de región (margen)', 0, 0.3, 0.01],
+        ['margin', 'Límite (margen)', 0, 0.3, 0.01],
         ['map', 'Escala de cursores', 1, 2.2, 0.05],
-        ['hold', 'Tiempo de captura (s)', 0.3, 3, 0.1],
-        ['stars', 'Velocidad de estrellas', 0, 4, 0.1],
+        ['hold', 'Tiempo captura (s)', 0.3, 3, 0.1],
+        ['stars', 'Vel. estrellas', 0, 4, 0.1],
     ];
     const tab = document.createElement('div');
     tab.className = 'vk-tab';
-    tab.textContent = '⚙ AJUSTES';
+    tab.textContent = 'SETTINGS';
     const panel = document.createElement('div');
     panel.className = 'vk-panel';
-    panel.innerHTML = '<h3>// SENSIBILIDAD</h3>';
+    panel.innerHTML = '<h3>SENSITIVITY</h3>';
     const inputs = {};
     function addSlider([key, name, min, max, st]) {
         const row = document.createElement('div');
@@ -138,12 +143,12 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         panel.appendChild(l);
         inputs[key] = { inp: c };
     }
-    addCheck('preview', 'Mostrar vista previa de la cámara', showPreview);
+    addCheck('preview', 'Vista previa de cámara', showPreview);
     addCheck('invx', 'Invertir giro horizontal');
     addCheck('invy', 'Invertir giro vertical');
     const reset = document.createElement('button');
     reset.className = 'vk-btn';
-    reset.textContent = 'RESTABLECER';
+    reset.textContent = 'RESET DEFAULT';
     reset.onclick = () => {
         Object.assign(P, DEFAULTS);
         saveParams();
@@ -154,7 +159,7 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         starSettings.speed = P.stars;
     };
     panel.appendChild(reset);
-    tab.onclick = () => { panel.classList.toggle('open'); tab.style.right = panel.classList.contains('open') ? '290px' : '0'; };
+    tab.onclick = () => { panel.classList.toggle('open'); tab.style.right = panel.classList.contains('open') ? '320px' : '0'; };
     tab.style.transition = 'right .35s cubic-bezier(.2,.8,.2,1)';
     document.body.append(panel, tab);
     starSettings.speed = P.stars;
@@ -168,11 +173,18 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     addEventListener('resize', fit);
 
     const shots = document.createElement('div');
-    shots.style.cssText = 'position:fixed;right:12px;top:12px;display:flex;flex-direction:column;gap:8px;z-index:10';
+    shots.style.cssText = 'position:fixed;right:24px;top:24px;display:flex;flex-direction:column;gap:12px;z-index:10';
     document.body.appendChild(shots);
 
     const toScreen = (nx, ny) => [((nx - 0.5) * P.map + 0.5) * innerWidth,
                                   ((ny - 0.5) * P.map + 0.5) * innerHeight];
+
+    // Posición de la mano para GIRAR. auralis_visuals.py manda x/y (anchos de hombro
+    // respecto al torso). Si una versión vieja no los manda, se usan sx/sy (posición en
+    // la imagen del sensor) escaladas: el ancho del sensor son ~3 anchos de hombro.
+    const handXY = (h) => Number.isFinite(h.x) && Number.isFinite(h.y)
+        ? { x: h.x, y: h.y }
+        : { x: h.sx * 3, y: h.sy * 3 };
 
     // ---------- movimiento ----------
     const clampStep = (v) => THREE.MathUtils.clamp(v, -MAX_STEP, MAX_STEP);
@@ -181,6 +193,8 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     let lastMoveT = 0, lastLiveT = 0, lastTick = performance.now();
 
     function rotate(dx, dy) {
+        // Un solo valor inválido dejaba pend.theta en NaN y el globo no volvía a girar NUNCA.
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         if (Math.hypot(dx, dy) < P.dead) return;
         const scale = THREE.MathUtils.clamp((camera.position.length() - 1) / 2.2, 0.15, 2);
         last.theta = clampStep((P.invx ? 1 : -1) * dx * P.rot * scale);
@@ -263,10 +277,12 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         a.href = out.toDataURL('image/png');
         a.download = `zona_${Date.now()}.png`;
         a.title = 'Clic para descargar';
-        a.style.cssText = 'display:block;border:2px solid #0ff;border-radius:6px;overflow:hidden;background:#000';
+        a.style.cssText = 'display:block;border:1px solid #444;overflow:hidden;background:#000;transition:border-color 0.2s ease;';
+        a.onmouseover = () => a.style.borderColor = '#fff';
+        a.onmouseout = () => a.style.borderColor = '#444';
         const im = document.createElement('img');
         im.src = a.href;
-        im.style.cssText = 'display:block;max-width:220px;max-height:160px';
+        im.style.cssText = 'display:block;max-width:220px;max-height:160px;filter:grayscale(100%)';
         a.appendChild(im);
         shots.prepend(a);
         while (shots.children.length > 3) shots.lastChild.remove();
@@ -280,28 +296,27 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     // ---------- dibujo de manos / cuadro ----------
     // Minimapa del campo visible del Kinect: borde = lo que ve, recuadro punteado = región segura
     // Se reserva siempre este espacio (arriba a la izquierda); con la vista previa activa, va debajo
-    const MAP_RECT = { x: 12, y: 54, w: 256, h: 192 };
+    const MAP_RECT = { x: 24, y: 54, w: 256, h: 192 };
     function drawMinimap(msg) {
         const { x, y, w, h } = MAP_RECT, m = P.margin;
         g.save();
-        g.fillStyle = P.preview ? '#02081622' : '#020816cc';
+        g.fillStyle = P.preview ? 'transparent' : 'rgba(0,0,0,0.8)';
         g.fillRect(x, y, w, h);
-        g.strokeStyle = '#00eaffaa'; g.lineWidth = 1.5; g.strokeRect(x + .5, y + .5, w - 1, h - 1);
-        g.setLineDash([6, 4]); g.strokeStyle = '#ff8a1e'; g.lineWidth = 2;
+        g.strokeStyle = '#444'; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w - 1, h - 1);
+        g.setLineDash([4, 4]); g.strokeStyle = '#666'; g.lineWidth = 1;
         g.strokeRect(x + m * w, y + m * h, w * (1 - 2 * m), h * (1 - 2 * m));
         g.setLineDash([]);
         for (const b of msg.bodies) {
             for (const k of ['L', 'R']) {
                 const hd = b.hands[k];
                 if (!hd || !(hd.vis || hd.out)) continue;
-                g.fillStyle = hd.out ? '#ff3030' : COLORS[(b.id - 1) % COLORS.length];
-                g.beginPath(); g.arc(x + hd.sx * w, y + hd.sy * h, 6, 0, Math.PI * 2); g.fill();
-                g.strokeStyle = '#fff'; g.lineWidth = 1; g.stroke();
+                g.fillStyle = hd.out ? '#444' : COLORS[(b.id - 1) % COLORS.length];
+                g.beginPath(); g.arc(x + hd.sx * w, y + hd.sy * h, 4, 0, Math.PI * 2); g.fill();
             }
         }
-        g.fillStyle = '#00eaffcc'; g.font = '11px monospace';
-        g.fillText('ZONA KINECT', x + 6, y + 14);
-        if (!msg.bodies.length) g.fillText('sin cuerpo', x + 6, y + h - 8);
+        g.fillStyle = '#666'; g.font = '10px system-ui,-apple-system,sans-serif';
+        g.fillText('ZONE', x + 6, y + 14);
+        if (!msg.bodies.length) g.fillText('NO BODY DETECTED', x + 6, y + h - 8);
         g.restore();
     }
 
@@ -315,38 +330,38 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
             for (const k of ['L', 'R']) {
                 const h = b.hands[k];
                 if (!h || !(h.vis || h.out)) continue;
-                if (h.out) {        // fuera de la región: aviso en rojo
+                if (h.out) {        // fuera de la región: cruz fina
                     const [ox, oy] = toScreen(Math.min(Math.max(h.sx, 0.02), 0.98), Math.min(Math.max(h.sy, 0.02), 0.98));
-                    g.globalAlpha = 0.7; g.strokeStyle = '#ff3030'; g.lineWidth = 3;
-                    g.beginPath(); g.arc(ox, oy, 12, 0, Math.PI * 2); g.moveTo(ox - 8, oy - 8); g.lineTo(ox + 8, oy + 8);
-                    g.moveTo(ox + 8, oy - 8); g.lineTo(ox - 8, oy + 8); g.stroke(); g.globalAlpha = 1;
+                    g.globalAlpha = 0.5; g.strokeStyle = '#888'; g.lineWidth = 1;
+                    g.beginPath(); g.arc(ox, oy, 10, 0, Math.PI * 2); g.moveTo(ox - 6, oy - 6); g.lineTo(ox + 6, oy + 6);
+                    g.moveTo(ox + 6, oy - 6); g.lineTo(ox - 6, oy + 6); g.stroke(); g.globalAlpha = 1;
                     continue;
                 }
                 pts[k] = toScreen(h.sx, h.sy);
                 const [x, y] = pts[k];
-                g.globalAlpha = h.held ? 0.4 : 1;
+                g.globalAlpha = h.held ? 0.3 : 1;
                 g.beginPath();
-                g.arc(x, y, h.on ? 16 : 9, 0, Math.PI * 2);
-                g.lineWidth = isPrimary ? 4 : 2;
+                g.arc(x, y, h.on ? 12 : 6, 0, Math.PI * 2);
+                g.lineWidth = isPrimary ? 2 : 1;
                 g.strokeStyle = col;
                 g.stroke();
-                if (h.on) { g.fillStyle = col + '88'; g.fill(); }
-                g.fillStyle = '#fff';
-                g.font = '12px sans-serif';
-                g.fillText(`C${b.id}·${k}`, x + 20, y + 4);
+                if (h.on) { g.fillStyle = 'rgba(255,255,255,0.2)'; g.fill(); }
+                g.fillStyle = '#aaa';
+                g.font = '10px system-ui,-apple-system,sans-serif';
+                g.fillText(`C${b.id}·${k}`, x + 16, y + 4);
             }
             g.globalAlpha = 1;
             if (pts.L && pts.R) {       // correlación entre las dos manos del mismo cuerpo
                 g.beginPath();
                 g.moveTo(...pts.L); g.lineTo(...pts.R);
-                g.strokeStyle = col + (isPrimary ? 'cc' : '55');
-                g.lineWidth = isPrimary ? 3 : 1;
-                g.setLineDash([6, 6]);
+                g.strokeStyle = isPrimary ? '#888' : '#444';
+                g.lineWidth = 1;
+                g.setLineDash([4, 4]);
                 g.stroke();
                 g.setLineDash([]);
                 if (isPrimary) {
-                    g.fillStyle = '#fff';
-                    g.fillText(b.armed ? 'ZOOM ✋✋' : 'dos manos', (pts.L[0] + pts.R[0]) / 2, (pts.L[1] + pts.R[1]) / 2 - 8);
+                    g.fillStyle = '#aaa';
+                    g.fillText(b.armed ? 'ZOOM ✋✋' : 'TWO HANDS', (pts.L[0] + pts.R[0]) / 2, (pts.L[1] + pts.R[1]) / 2 - 8);
                 }
             }
             if (b.frame) drawFrame(b.frame, col, isPrimary);
@@ -357,26 +372,28 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         const [x0, y0] = toScreen(rect[0], rect[1]);
         const [x1, y1] = toScreen(rect[2], rect[3]);
         const x = Math.min(x0, x1), y = Math.min(y0, y1), w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
-        g.strokeStyle = '#0ff';
-        g.lineWidth = 2;
-        g.setLineDash([10, 6]);
+        g.strokeStyle = '#666';
+        g.lineWidth = 1;
+        g.setLineDash([4, 4]);
         g.strokeRect(x, y, w, h);
         g.setLineDash([]);
-        const L = Math.min(24, w / 3, h / 3);
-        g.lineWidth = 4;
+        const L = Math.min(20, w / 4, h / 4);
+        g.lineWidth = 2;
+        g.strokeStyle = '#fff';
         for (const [cx, cy, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
             g.beginPath();
             g.moveTo(cx + sx * L, cy); g.lineTo(cx, cy); g.lineTo(cx, cy + sy * L);
             g.stroke();
         }
-        g.fillStyle = '#0ff';
-        g.font = '13px sans-serif';
-        g.fillText('ZONA', x + 6, y - 6);
+        g.fillStyle = '#aaa';
+        g.font = '10px system-ui,-apple-system,sans-serif';
+        g.fillText('FRAME', x + 4, y - 6);
         if (isPrimary && hold) {
             const p = Math.min((performance.now() - hold.t0) / (P.hold * 1000), 1);
             g.beginPath();
-            g.arc(x + w / 2, y + h / 2, 22, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
-            g.lineWidth = 5;
+            g.arc(x + w / 2, y + h / 2, 16, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+            g.lineWidth = 2;
+            g.strokeStyle = '#fff';
             g.stroke();
         }
     }
@@ -414,7 +431,7 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         if (!b) {
             setMode('none');
             hold = null;
-            text = msg.bodies.length ? 'levanta una mano' : 'buscando cuerpo…';
+            text = msg.bodies.length ? 'RAISE A HAND' : 'SEARCHING...';
         } else if (b.frame) {
             setMode('frame');
             const key = b.frame.map((v) => v.toFixed(2)).join();
@@ -424,7 +441,7 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
                 hold.done = true;
                 capture(b.frame);
             }
-            text = 'ENCUADRE' + (hold && hold.done ? ' · capturado' : '');
+            text = 'FRAME' + (hold && hold.done ? ' · CAPTURED' : '');
         } else {
             hold = null;
             const L = b.hands.L, R = b.hands.R;
@@ -434,10 +451,11 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
                 if (!L.held && !R.held) lastLiveT = performance.now();
                 // Movimiento de cada mano desde el frame anterior (L = izquierda, R = derecha)
                 const lp = (p, c) => p + (c - p) * P.hand;
+                const lxy = handXY(L), rxy = handXY(R);
                 const cur = prevHands ? {
-                    L: { x: lp(prevHands.L.x, L.x), y: lp(prevHands.L.y, L.y) },
-                    R: { x: lp(prevHands.R.x, R.x), y: lp(prevHands.R.y, R.y) },
-                } : { L: { x: L.x, y: L.y }, R: { x: R.x, y: R.y } };
+                    L: { x: lp(prevHands.L.x, lxy.x), y: lp(prevHands.L.y, lxy.y) },
+                    R: { x: lp(prevHands.R.x, rxy.x), y: lp(prevHands.R.y, rxy.y) },
+                } : { L: lxy, R: rxy };
                 if (prevHands) {
                     const dx1 = cur.L.x - prevHands.L.x, dy1 = cur.L.y - prevHands.L.y;   // mano izquierda
                     const dx2 = cur.R.x - prevHands.R.x, dy2 = cur.R.y - prevHands.R.y;   // mano derecha
@@ -445,7 +463,7 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
                     if (q1 !== 0 && q2 !== 0) {
                         if (Math.sign(q1) === Math.sign(q2)) {
                             rotate((dx1 + dx2) / 2, (dy1 + dy2) / 2);          // mismo signo: mover
-                            text = 'MOVER';
+                            text = 'DRAG';
                         } else {
                             const dist = Math.hypot(cur.L.x - cur.R.x, cur.L.y - cur.R.y);     // signo opuesto: zoom
                             const dprev = Math.hypot(prevHands.L.x - prevHands.R.x, prevHands.L.y - prevHands.R.y);
@@ -455,25 +473,25 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
                     }                                                          // alguna en 0: nada
                 }
                 prevHands = cur;
-                text = text || 'dos manos';
+                text = text || 'TWO HANDS';
             } else if ((L && L.on) || (R && R.on)) {
-                const key = L && L.on ? 'L' : 'R', h = b.hands[key];
+                const key = L && L.on ? 'L' : 'R', h = b.hands[key], xy = handXY(h);
                 if (mode !== 'drag' || prev?.key !== key) { setMode('drag'); prev = null; }
-                if (prev) rotate(h.x - prev.x, h.y - prev.y);
+                if (prev) rotate(xy.x - prev.x, xy.y - prev.y);
                 if (!h.held) lastLiveT = performance.now();
-                prev = { key, x: h.x, y: h.y };
-                text = `ARRASTRAR (${key})`;
+                prev = { key, x: xy.x, y: xy.y };
+                text = `DRAG (${key})`;
             } else {
                 setMode('none');
-                text = 'levanta una mano';
+                text = 'RAISE A HAND';
             }
             text += ` · C${b.id}${b.z ? ' ' + b.z + 'm' : ''}`;
         }
-        badge.textContent = `Kinect: ${text} · cuerpos ${msg.bodies.length}`;
+        badge.textContent = `KINECT: ${text} · BODIES ${msg.bodies.length}`;
         drawBodies(msg);
     }
 
-    const es = new EventSource('/events');
+    const es = new EventSource(AURALIS + '/events');
     es.onmessage = (e) => onMessage(JSON.parse(e.data));
-    es.onerror = () => { badge.textContent = 'Kinect: sin conexión'; };
+    es.onerror = () => { badge.textContent = 'KINECT: NO CONNECTION'; };
 }
