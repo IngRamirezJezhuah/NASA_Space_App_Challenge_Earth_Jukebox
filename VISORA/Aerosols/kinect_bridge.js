@@ -16,6 +16,7 @@ const DEFAULTS = {
     smooth: 0.28,    // fracción del movimiento pendiente aplicada por frame
     inertia: 1.5,    // s que tarda el empujón en frenarse (0 = sin inercia)
     hand: 0.6,       // filtro de las manos (1 = sin filtro)
+    margin: 0.08,    // límite de región: margen (fracción de la imagen del Kinect) donde la mano ya no cuenta
     map: 1.4,        // cuánto se amplía el movimiento de las manos en pantalla
     hold: 1.0,       // s con el cuadro quieto para capturar la zona
     stars: 1.0,      // velocidad de las estrellas de fondo
@@ -38,6 +39,7 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     let mode = 'none', prev = null, prevDist = null, prevHands = null, primaryId = null;
     const claps = new Map();
     let hold = null;     // {t0, rect}
+    const regionOut = { L: false, R: false };   // la mano salió de la región segura del Kinect
     let lockedId = null, lockedSeen = 0;   // una sola persona controla; el resto es ruido
 
     // ---------- UI ----------
@@ -97,6 +99,7 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         ['hand', 'Filtro de manos', 0.1, 1, 0.05],
         ['dead', 'Zona muerta', 0, 0.05, 0.001],
         ['step', 'Umbral dos manos', 0.002, 0.06, 0.002],
+        ['margin', 'Límite de región (margen)', 0, 0.3, 0.01],
         ['map', 'Escala de cursores', 1, 2.2, 0.05],
         ['hold', 'Tiempo de captura (s)', 0.3, 3, 0.1],
         ['stars', 'Velocidad de estrellas', 0, 4, 0.1],
@@ -275,15 +278,45 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
     }
 
     // ---------- dibujo de manos / cuadro ----------
+    // Minimapa del campo visible del Kinect: borde = lo que ve, recuadro punteado = región segura
+    function drawMinimap(msg) {
+        const w = 132, h = 99, x = innerWidth - w - 12, y = innerHeight - h - 12, m = P.margin;
+        g.save();
+        g.fillStyle = '#020816cc'; g.fillRect(x, y, w, h);
+        g.strokeStyle = '#00eaff88'; g.lineWidth = 1; g.strokeRect(x + .5, y + .5, w - 1, h - 1);
+        g.setLineDash([4, 3]); g.strokeStyle = '#ff8a1e';
+        g.strokeRect(x + m * w, y + m * h, w * (1 - 2 * m), h * (1 - 2 * m));
+        g.setLineDash([]);
+        for (const b of msg.bodies) {
+            for (const k of ['L', 'R']) {
+                const hd = b.hands[k];
+                if (!hd || !(hd.vis || hd.out)) continue;
+                g.fillStyle = hd.out ? '#ff3030' : COLORS[(b.id - 1) % COLORS.length];
+                g.beginPath(); g.arc(x + hd.sx * w, y + hd.sy * h, 4, 0, Math.PI * 2); g.fill();
+            }
+        }
+        g.fillStyle = '#00eaffaa'; g.font = '9px monospace';
+        g.fillText('ZONA KINECT', x + 4, y + 10);
+        g.restore();
+    }
+
     function drawBodies(msg) {
         g.clearRect(0, 0, cv.width, cv.height);
+        drawMinimap(msg);
         for (const b of msg.bodies) {
             const col = COLORS[(b.id - 1) % COLORS.length];
             const isPrimary = b.id === msg.primary;
             const pts = {};
             for (const k of ['L', 'R']) {
                 const h = b.hands[k];
-                if (!h || !h.vis) continue;
+                if (!h || !(h.vis || h.out)) continue;
+                if (h.out) {        // fuera de la región: aviso en rojo
+                    const [ox, oy] = toScreen(Math.min(Math.max(h.sx, 0.02), 0.98), Math.min(Math.max(h.sy, 0.02), 0.98));
+                    g.globalAlpha = 0.7; g.strokeStyle = '#ff3030'; g.lineWidth = 3;
+                    g.beginPath(); g.arc(ox, oy, 12, 0, Math.PI * 2); g.moveTo(ox - 8, oy - 8); g.lineTo(ox + 8, oy + 8);
+                    g.moveTo(ox + 8, oy - 8); g.lineTo(ox - 8, oy + 8); g.stroke(); g.globalAlpha = 1;
+                    continue;
+                }
                 pts[k] = toScreen(h.sx, h.sy);
                 const [x, y] = pts[k];
                 g.globalAlpha = h.held ? 0.4 : 1;
@@ -356,6 +389,15 @@ export function initKinect({ scene, camera, controls, renderer, pivot }) {
         msg.bodies = msg.bodies.filter((x) => x.id === ctrlId);   // límite: 1 persona
         msg.primary = ctrlId;                     // dibujo y lógica solo usan el cuerpo fijado
         const b = msg.bodies.find((x) => x.id === ctrlId);
+        // Límite de región: una mano en el borde del campo visible (o fuera) se trata como soltada.
+        // Así el movimiento termina, se conserva el empujón (inercia) y no se queda "pegado" en ARRASTRAR.
+        for (const k of ['L', 'R']) {
+            const h = b && b.hands[k];
+            if (!h || !h.vis) { regionOut[k] = false; continue; }
+            const lo = P.margin + (regionOut[k] ? 0.02 : 0), hi = 1 - lo;     // histéresis al volver
+            regionOut[k] = h.sx < lo || h.sx > hi || h.sy < lo || h.sy > hi;
+            if (regionOut[k]) { h.out = true; h.vis = false; h.on = false; }
+        }
         // Aplausos: un contador por cuerpo; solo dispara el del cuerpo que controla
         for (const x of msg.bodies) {
             if (claps.has(x.id) && x.clap > claps.get(x.id) && x.id === ctrlId) zoomBy(-P.clap);
