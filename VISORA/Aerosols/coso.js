@@ -15,9 +15,10 @@ renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const FRAME_COUNT = 2206;
-const CHANGE_INTERVAL = 150; // ms que dura la transición entre imágenes
-const RENDER_FPS = 60;
-const PRELOAD = 8;
+const PRELOAD = 26;          // cuántos cuadros se van cargando por delante
+const FADE_RATIO = 0.75;     // parte del intervalo que dura la mezcla entre cuadros
+const SPEEDS = [6, 10, 15, 24];   // cuadros por segundo que ofrece el botón de velocidad
+let speedIdx = 2;
 
 const images = Array.from({ length: FRAME_COUNT }, (_, i) =>
     `AURAS/AerosolOpticalDepth_2048x1024_30fps.${String(i).padStart(4, '0')}.png`
@@ -32,6 +33,8 @@ function getTexture(i) {
         const t = loader.load(images[i]);
         t.colorSpace = THREE.SRGBColorSpace;
         t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        t.generateMipmaps = false;                 // no hacen falta y encarecen cada subida
+        t.minFilter = THREE.LinearFilter;
         cache.set(i, t);
     }
     return cache.get(i);
@@ -40,7 +43,7 @@ function getTexture(i) {
 const isReady = (t) => !!t.image;
 
 function preload(from) {
-    const keep = new Set([from]);
+    const keep = new Set();
     for (let k = 0; k <= PRELOAD; k++) {
         const i = (from + k) % images.length;
         keep.add(i);
@@ -49,6 +52,16 @@ function preload(from) {
     for (const [i, t] of cache) {
         if (!keep.has(i)) { t.dispose(); cache.delete(i); }
     }
+}
+// cuántos cuadros seguidos ya están listos por delante: sirve para no tartamudear
+function buffered(from) {
+    let n = 0;
+    for (let k = 1; k <= PRELOAD; k++) {
+        const t = cache.get((from + k) % images.length);
+        if (!t || !isReady(t)) break;
+        n++;
+    }
+    return n;
 }
 
 const geometry = new THREE.SphereGeometry(1, 128, 64);
@@ -62,23 +75,149 @@ const pivot = new THREE.Group();   // el globo gira sobre este grupo (sin límit
 pivot.add(globe, overlay);
 scene.add(pivot);
 const updateStars = createStars(scene);   // fondo de estrellas con paralaje
-const updateCrosshair = createCrosshair({ camera, globe, getMap: () => baseMat.map });   // mira central + color
+const updateCrosshair = createCrosshair({ camera, globe, getMap: () => baseMat.map });   // mira central + gas
 
 preload(0);
 let index = 0;
 let playing = true;
 let fading = false;
 let fadeStart = 0;
+let waiting = false;
+
+/* =============================================================================
+   INTERFAZ
+   Mínima y sobria: una barra de reproducción abajo, el fondo arriba a la
+   izquierda, y nada más. Todo se desvanece cuando nadie toca nada.
+   ============================================================================= */
+const ICON_PAUSE = '<svg id="v-icon" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="2.6" height="8"/><rect x="6.4" y="1" width="2.6" height="8"/></svg>';
+const ICON_PLAY = '<svg id="v-icon" viewBox="0 0 10 10" fill="currentColor"><path d="M1.6 1 9 5 1.6 9z"/></svg>';
+
+const play = document.createElement('div');
+play.id = 'v-play';
+play.className = 'v-panel v-fade';
+play.innerHTML = `
+  <button class="v-btn" id="v-toggle" title="Reproducir o pausar" style="padding:9px 11px">${ICON_PAUSE}</button>
+  <input type="range" id="v-scrub" min="0" max="${FRAME_COUNT - 1}" value="0">
+  <div id="v-time"><b>1</b> / ${FRAME_COUNT}</div>
+  <div class="sep"></div>
+  <button class="v-btn" id="v-speed" title="Velocidad">${SPEEDS[speedIdx]} fps</button>`;
+document.body.appendChild(play);
+
+const top = document.createElement('div');
+top.id = 'v-top';
+top.className = 'v-fade';
+top.innerHTML = `
+  <select id="v-bg" title="Fondo detrás del planeta"></select>
+  <button class="v-btn" id="v-bgfile">Imagen propia</button>
+  <input type="file" id="v-file" accept="image/*">`;
+document.body.appendChild(top);
+
+const buf = document.createElement('div');
+buf.id = 'v-buf';
+buf.textContent = 'cargando';
+document.body.appendChild(buf);
+
+const $ = (id) => document.getElementById(id);
+const toggleBtn = $('v-toggle'), scrub = $('v-scrub'), timeEl = $('v-time'), speedBtn = $('v-speed');
+
+function setPlaying(v) {
+    playing = v;
+    toggleBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+}
+toggleBtn.onclick = () => setPlaying(!playing);
+speedBtn.onclick = () => { speedIdx = (speedIdx + 1) % SPEEDS.length; speedBtn.textContent = SPEEDS[speedIdx] + ' fps'; };
+scrub.oninput = () => {
+    index = +scrub.value;
+    fading = false; overlay.visible = false;
+    baseMat.map = getTexture(index);
+    preload(index);
+    updateTime();
+};
+function updateTime() {
+    timeEl.innerHTML = `<b>${index + 1}</b> / ${FRAME_COUNT}`;
+    if (document.activeElement !== scrub) scrub.value = index;
+}
+
+// Fondo de imagen (se muestra detrás del globo)
+const bgOptions = [
+    ['Sin fondo', ''],
+    ['Untitled.jpeg', 'Untitled.jpeg'],
+    ['Primer cuadro', images[0]]
+];
+const bgSelect = $('v-bg');
+for (const [name, url] of bgOptions) bgSelect.add(new Option(name, url));
+function setBackground(url) {
+    document.body.style.background = url ? `#000 url("${url}") center / cover no-repeat` : '#000';
+}
+bgSelect.onchange = () => setBackground(bgSelect.value);
+$('v-bgfile').onclick = () => $('v-file').click();
+$('v-file').onchange = () => {
+    const f = $('v-file').files[0];
+    if (f) { setBackground(URL.createObjectURL(f)); bgSelect.selectedIndex = 0; }
+};
+
+// La interfaz se desvanece sola a los 4 s sin actividad
+let idleT = 0;
+function wake() {
+    document.body.classList.remove('idle');
+    clearTimeout(idleT);
+    idleT = setTimeout(() => document.body.classList.add('idle'), 4000);
+}
+['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach((e) => addEventListener(e, wake, { passive: true }));
+wake();
+
+addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); setPlaying(!playing); }
+    if (e.key === 'ArrowRight') { index = (index + 1) % FRAME_COUNT; baseMat.map = getTexture(index); preload(index); updateTime(); }
+    if (e.key === 'ArrowLeft') { index = (index - 1 + FRAME_COUNT) % FRAME_COUNT; baseMat.map = getTexture(index); preload(index); updateTime(); }
+});
+
+/* =============================================================================
+   CONTROLES
+   Giro libre de 360° en todos los ejes, con una inercia más larga y suave para
+   que el planeta se sienta pesado en vez de brusco.
+   ============================================================================= */
+const controls = new TrackballControls(camera, renderer.domElement);
+controls.noPan = true;
+controls.rotateSpeed = 1.05;
+controls.zoomSpeed = 0.45;
+controls.staticMoving = false;
+controls.dynamicDampingFactor = 0.06;   // más bajo = se desliza más tiempo
+controls.minDistance = 1.5;
+controls.maxDistance = 6;
+
+// Deriva lenta cuando nadie toca nada: el planeta nunca se queda totalmente quieto
+let lastInput = performance.now();
+const markInput = () => { lastInput = performance.now(); };
+renderer.domElement.addEventListener('pointerdown', markInput);
+renderer.domElement.addEventListener('wheel', markInput, { passive: true });
+addEventListener('visora:kinect-input', markInput);
+
+addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+
+/* =============================================================================
+   BUCLE
+   Los cuadros avanzan a los fps elegidos, pero solo si el siguiente ya está
+   descargado. Si no lo está, se espera en vez de tartamudear.
+   ============================================================================= */
+const driftAxis = new THREE.Vector3(0, 1, 0);
+const driftQ = new THREE.Quaternion();
+let lastT = 0;
 
 function startFade(now) {
     const next = getTexture(index + 1);
-    if (!isReady(next)) return; // espera a que cargue para no dar saltos
+    if (!isReady(next)) return false;
     topMat.map = next;
     topMat.opacity = 0;
     topMat.needsUpdate = true;
     overlay.visible = true;
     fading = true;
     fadeStart = now;
+    return true;
 }
 
 function finishFade() {
@@ -87,81 +226,38 @@ function finishFade() {
     overlay.visible = false;
     fading = false;
     preload(index);
-    label.textContent = `${index + 1} / ${images.length}`;
+    updateTime();
 }
 
-// UI
-const ui = document.createElement('div');
-ui.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:center;color:#fff;font:14px sans-serif;';
-const btnStyle = 'padding:8px 16px;border:0;border-radius:6px;cursor:pointer;font-size:14px;';
-const btnPlay = document.createElement('button');
-btnPlay.textContent = '▶ Reproducir';
-const btnPause = document.createElement('button');
-btnPause.textContent = '⏸ Pausa';
-btnPlay.style.cssText = btnPause.style.cssText = btnStyle;
-const label = document.createElement('span');
-label.textContent = `1 / ${images.length}`;
-ui.append(btnPause, btnPlay, label);
-document.body.appendChild(ui);
-
-btnPause.onclick = () => { playing = false; };
-btnPlay.onclick = () => { playing = true; };
-
-// Controles sin tope en los polos: giro libre de 360° en todos los ejes
-const controls = new TrackballControls(camera, renderer.domElement);
-controls.noPan = true;
-controls.rotateSpeed = 1.2;
-controls.zoomSpeed = 0.6;
-controls.staticMoving = false;
-controls.dynamicDampingFactor = 0.12;
-controls.minDistance = 1.5;
-controls.maxDistance = 6;
-
-// Fondo de imagen (se muestra detrás del globo)
-const bgOptions = [
-    ['Sin fondo', ''],
-    ['Imagen: Untitled.jpeg', 'Untitled.jpeg'],
-    ['Imagen: AURAS frame 0000', images[0]],
-];
-const bgSelect = document.createElement('select');
-for (const [name, url] of bgOptions) bgSelect.add(new Option(name, url));
-const bgFile = document.createElement('input');
-bgFile.type = 'file';
-bgFile.accept = 'image/*';
-const bgBox = document.createElement('div');
-bgBox.style.cssText = 'position:fixed;top:12px;left:12px;display:flex;gap:8px;align-items:center;color:#fff;font:13px sans-serif;z-index:10';
-bgBox.append('Fondo:', bgSelect, bgFile);
-document.body.appendChild(bgBox);
-
-function setBackground(url) {
-    document.body.style.background = url
-        ? `#000 url("${url}") center / cover no-repeat`
-        : '#000';
-}
-bgSelect.onchange = () => setBackground(bgSelect.value);
-bgFile.onchange = () => {
-    const f = bgFile.files[0];
-    if (f) setBackground(URL.createObjectURL(f));
-};
-
-addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-});
-
-let lastRender = 0;
 renderer.setAnimationLoop((now) => {
-    if (now - lastRender < 1000 / RENDER_FPS - 1) return;
-    lastRender = now;
+    const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.016;
+    lastT = now;
+    const interval = 1000 / SPEEDS[speedIdx];
+
     if (playing || fading) {
-        if (!fading) startFade(now);
+        if (!fading) {
+            // solo arranca la mezcla si hay colchón suficiente, así no se entrecorta
+            const ready = buffered(index) >= 2 || isReady(getTexture(index + 1));
+            const started = ready ? startFade(now) : false;
+            if (!started) { waiting = true; preload(index); }
+            else waiting = false;
+        }
         if (fading) {
-            const t = Math.min((now - fadeStart) / CHANGE_INTERVAL, 1);
-            topMat.opacity = t * t * (3 - 2 * t); // smoothstep
+            const t = Math.min((now - fadeStart) / (interval * FADE_RATIO), 1);
+            topMat.opacity = t * t * (3 - 2 * t);   // smoothstep
             if (t >= 1) finishFade();
         }
+    } else waiting = false;
+    buf.classList.toggle('on', waiting);
+
+    // deriva suave tras 12 s sin tocar nada
+    const idle = (now - lastInput) / 1000;
+    if (idle > 12) {
+        const amount = Math.min((idle - 12) / 6, 1) * 0.012 * dt;
+        driftQ.setFromAxisAngle(driftAxis, amount);
+        pivot.quaternion.multiply(driftQ).normalize();
     }
+
     controls.update();
     updateStars(now, camera, pivot);
     updateCrosshair(now);
